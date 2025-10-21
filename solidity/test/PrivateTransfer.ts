@@ -60,6 +60,7 @@ describe("PrivateTransfer", function () {
   it("getVault returns the decrypted vault after a deposit", async function () {
     const passwordWallet = ethers.Wallet.createRandom().connect(ethers.provider);
     const password = BigInt(ethers.keccak256(passwordWallet.privateKey));
+    const transferType = BigInt(1);
     const passwordAddress = passwordWallet.address;
     const allowAddress = signers.deployer.address;
     const depositAmount = ethers.parseEther("0.5");
@@ -67,6 +68,7 @@ describe("PrivateTransfer", function () {
     const encryptedInput = await fhevm
       .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
       .add256(password)
+      .add256(transferType)
       .addAddress(passwordAddress)
       .addAddress(allowAddress)
       .encrypt();
@@ -75,13 +77,12 @@ describe("PrivateTransfer", function () {
       encryptedInput.handles[0],
       encryptedInput.handles[1],
       encryptedInput.handles[2],
+      encryptedInput.handles[3],
       encryptedInput.inputProof,
       { value: depositAmount },
     );
     await tx.wait();
-
     await fhevm.awaitDecryptionOracle();
-
     const vault = await PrivateTransferContract.getVault(password);
     expect(vault.isPublished).to.equal(true);
     const decryptedBalance = await fhevm.userDecryptEuint(
@@ -91,7 +92,13 @@ describe("PrivateTransfer", function () {
       passwordWallet,
     ); 
     expect(decryptedBalance).to.equal(depositAmount);
-
+    const decryptedType = await fhevm.userDecryptEuint(
+      FhevmType.euint256,
+      vault.transferType,
+      PrivateTransferContractAddress,
+      passwordWallet,
+    ); 
+    expect(decryptedType).to.equal(transferType);
     const decryptedPasswordAddress = await fhevm.userDecryptEaddress(
       vault.passwordAddress,
       PrivateTransferContractAddress,

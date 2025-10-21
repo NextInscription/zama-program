@@ -139,7 +139,6 @@ describe("RedEnvelope", function () {
       redContract.filters.EnvelopeDecrypted(expectedRequestId, signers.deployer.address),
       requestReceipt!.blockNumber,
     );
-    console.log(events[0].args.clearAmount);
     expect(events.length).to.be.greaterThan(0);
     expect(events[0].args.clearAmount).to.equal(plainValue);
   });

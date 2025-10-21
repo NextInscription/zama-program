@@ -40,9 +40,11 @@ describe("PrivateTransfer", function () {
   });
 
   it("deposit rejects zero value", async function () {
+    const transferType = BigInt(1);
     const encryptedInput = await fhevm
       .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
       .add256(123n)
+      .add256(transferType)
       .addAddress(signers.alice.address)
       .addAddress(signers.bob.address)
       .encrypt();
@@ -50,8 +52,9 @@ describe("PrivateTransfer", function () {
     await expect(
       (PrivateTransferContract.connect(signers.alice) as unknown as any).deposit(
         encryptedInput.handles[0],
-        encryptedInput.handles[1],
-        encryptedInput.handles[2],
+      encryptedInput.handles[1],
+      encryptedInput.handles[2],
+      encryptedInput.handles[3],
         encryptedInput.inputProof,
       ),
     ).to.be.revertedWith("value zero");

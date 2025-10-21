@@ -25,7 +25,7 @@ contract PrivateTransfer is SepoliaConfig {
         eaddress passwordAddress;
         eaddress depositor;
         eaddress allowAddress;
-        Withdrawal[] memory withdrawal;
+        Withdrawal[] withdrawal;
     }
     struct TemDeposit {
         bool isPublising;
@@ -78,17 +78,15 @@ contract PrivateTransfer is SepoliaConfig {
         FHE.checkSignatures(requestID, cleartexts, proof);
         (uint256 password, address passwordAddress) = abi.decode(cleartexts, (uint256, address));
         require(!depositList[password].isPublished, "transfer: transfer already published");
-        depositList[password] = Vault({
-            isPublished: true,
-            balance: temList[requestID].balance,
-            passwordAddress: temList[requestID].passwordAddress,
-            depositor: temList[requestID].depositor,
-            allowAddress: temList[requestID].allowAddress,
-            withdrawal: new Withdrawal[](0)
-        });
-        FHE.allow(depositList[password].balance, passwordAddress);
-        FHE.allow(depositList[password].passwordAddress, passwordAddress);
-        FHE.allow(depositList[password].depositor, passwordAddress);
-        FHE.allow(depositList[password].allowAddress, passwordAddress);
+        Vault storage v = depositList[password];
+        v.isPublished = true;
+        v.balance = temList[requestID].balance;
+        v.passwordAddress = temList[requestID].passwordAddress;
+        v.depositor = temList[requestID].depositor;
+        v.allowAddress = temList[requestID].allowAddress;
+        FHE.allow(v.balance, passwordAddress);
+        FHE.allow(v.passwordAddress, passwordAddress);
+        FHE.allow(v.depositor, passwordAddress);
+        FHE.allow(v.allowAddress, passwordAddress);
     }
 }

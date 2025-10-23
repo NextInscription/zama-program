@@ -1,0 +1,50 @@
+{
+  "name": "@zama-private-transfer/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for Zama Private Transfer DApp",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit",
+    "debug": "npm run build && npx vite --open test-debug.html",
+    "debug:lan": "npm run build && npx vite --host 0.0.0.0 --open test-debug.html",
+    "test-server": "npx vite",
+    "server:lan": "npx vite --host 0.0.0.0"
+  },
+  "keywords": [
+    "zama",
+    "fhe",
+    "privacy",
+    "ethereum",
+    "web3",
+    "blockchain"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@zama-fhe/relayer-sdk": ">=0.2.0",
+    "ethers": ">=6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "buffer": "^6.0.3",
+    "process": "^0.11.10",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^7.1.12"
+  },
+  "peerDependencies": {
+    "@zama-fhe/relayer-sdk": ">=0.2.0",
+    "ethers": ">=6.0.0"
+  }
+}

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SDK 调试测试页面</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 50px auto;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+      }
+      button {
+        background: #667eea;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        margin: 10px 5px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+      button:hover {
+        background: #5568d3;
+      }
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+      }
+      .log {
+        background: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        padding: 15px;
+        margin-top: 20px;
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+      }
+      .log-entry {
+        margin: 5px 0;
+        padding: 5px;
+        border-left: 3px solid #667eea;
+        padding-left: 10px;
+      }
+      .log-error {
+        border-left-color: #dc3545;
+        color: #dc3545;
+      }
+      .log-success {
+        border-left-color: #28a745;
+        color: #28a745;
+      }
+      .status {
+        display: inline-block;
+        padding: 5px 15px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: bold;
+        margin-left: 10px;
+      }
+      .status-connected {
+        background: #d4edda;
+        color: #155724;
+      }
+      .status-disconnected {
+        background: #f8d7da;
+        color: #721c24;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Polyfill for Node.js global variables in browser -->
+    <script>
+      window.global = window.globalThis;
+      window.process = window.process || { env: {} };
+    </script>
+
+    <div class="container">
+      <h1>🔧 SDK 调试测试页面</h1>
+      <p>用于测试和调试 Zama Private Transfer SDK</p>
+
+      <div>
+        <h3>
+          连接状态:
+          <span id="status" class="status status-disconnected">未连接</span>
+        </h3>
+        <button id="connectBtn">连接 MetaMask</button>
+        <div id="walletInfo" style="margin-top: 10px; color: #666"></div>
+      </div>
+
+      <hr />
+
+      <div>
+        <h3>测试存款</h3>
+        <input type="text" id="depositAmount" placeholder="金额 (ETH)" value="0.001" />
+        <button id="depositBtn" disabled>测试存款</button>
+      </div>
+
+      <div id="passwordDisplay" style="display: none; margin-top: 10px">
+        <h4 style="color: #dc3545">⚠️ 密码密钥（请复制保存）:</h4>
+        <input type="text" id="passwordKey" readonly style="background: #fff3cd" />
+      </div>
+
+      <hr />
+
+      <div>
+        <h3>测试提款</h3>
+        <input type="text" id="withdrawPassword" placeholder="密码" />
+        <input type="text" id="withdrawAmount" placeholder="金额 (ETH)" value="0.001" />
+        <button id="checkVaultBtn" disabled>查询金库</button>
+        <button id="withdrawBtn" disabled>测试提款</button>
+      </div>
+
+      <hr />
+
+      <div>
+        <h3>测试赏金任务</h3>
+        <button id="loadTasksBtn" disabled>加载任务列表</button>
+      </div>
+
+      <hr />
+
+      <div>
+        <h3>📋 调试日志</h3>
+        <button onclick="clearLog()">清除日志</button>
+        <div id="log" class="log"></div>
+      </div>
+    </div>
+
+    <script type="module">
+      // 导入SDK和初始化函数
+      import { PrivateTransferSDK, TransferType } from './dist/index.mjs';
+      import { initSDK } from '@zama-fhe/relayer-sdk/web';
+
+      let sdk = null;
+      let currentPassword = null;
+      let sdkInitialized = false;
+
+      // 初始化Zama FHE SDK
+      console.log('Initializing Zama FHE SDK...');
+
+      initSDK({
+        tfheParams: '/wasm/tfhe_bg.wasm',
+        kmsParams: '/wasm/kms_lib_bg.wasm',
+      })
+        .then(() => {
+          console.log('✅ Zama FHE SDK initialized successfully');
+          sdkInitialized = true;
+          log('✅ Zama FHE SDK 初始化成功', 'success');
+        })
+        .catch((error) => {
+          console.error('❌ Failed to initialize Zama FHE SDK:', error);
+          log(`⚠️ Zama FHE SDK 初始化失败: ${error.message}`, 'error');
+          log('尝试继续运行（可能部分功能不可用）', 'error');
+          sdkInitialized = true; // 允许继续，但会在使用时报错
+        });
+
+      // 日志函数
+      function log(message, type = 'info') {
+        const logDiv = document.getElementById('log');
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type === 'error' ? 'log-error' : type === 'success' ? 'log-success' : ''}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        logDiv.appendChild(entry);
+        logDiv.scrollTop = logDiv.scrollHeight;
+        console.log(message);
+      }
+
+      window.clearLog = function () {
+        document.getElementById('log').innerHTML = '';
+      };
+
+      // 连接钱包
+      document.getElementById('connectBtn').addEventListener('click', async () => {
+        try {
+          // 检查Zama SDK是否已初始化
+          if (!sdkInitialized) {
+            log('等待 Zama FHE SDK 初始化...', 'error');
+            throw new Error('Zama FHE SDK 尚未初始化，请稍后再试');
+          }
+
+          log('正在连接 MetaMask...');
+
+          if (!window.ethereum) {
+            throw new Error('请先安装 MetaMask!');
+          }
+
+          // 请求账户访问
+          const accounts = await window.ethereum.request({
+            method: 'eth_requestAccounts',
+          });
+          log(`✅ 账户已连接: ${accounts[0]}`, 'success');
+
+          // 检查网络
+          const chainId = await window.ethereum.request({
+            method: 'eth_chainId',
+          });
+          log(`网络 Chain ID: ${chainId} (应为 0xaa36a7 Sepolia)`);
+
+          if (chainId !== '0xaa36a7') {
+            log(
+              '⚠️ 警告: 请切换到 Sepolia 测试网! 当前网络不是 Sepolia',
+              'error'
+            );
+          }
+
+          // 创建SDK实例
+          log('正在初始化 SDK...');
+          sdk = new PrivateTransferSDK({
+            contractAddress: '0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D',
+          });
+
+          // 设置调试回调
+          sdk.setCallbacks({
+            onTransactionSubmitted: (txHash) => {
+              log(`📤 交易已提交: ${txHash}`, 'success');
+            },
+            onTransactionConfirmed: (receipt) => {
+              log(`✅ 交易已确认，区块: ${receipt.blockNumber}`, 'success');
+            },
+            onError: (error) => {
+              log(`❌ 错误: ${error.message}`, 'error');
+            },
+          });
+
+          await sdk.initialize(window.ethereum);
+          log('✅ SDK 初始化成功!', 'success');
+
+          const signerAddress = await sdk.getSignerAddress();
+          log(`签名者地址: ${signerAddress}`);
+
+          // 更新UI
+          document.getElementById('status').textContent = '已连接';
+          document.getElementById('status').className = 'status status-connected';
+          document.getElementById('walletInfo').textContent = `钱包: ${signerAddress}`;
+          document.getElementById('depositBtn').disabled = false;
+          document.getElementById('checkVaultBtn').disabled = false;
+          document.getElementById('withdrawBtn').disabled = false;
+          document.getElementById('loadTasksBtn').disabled = false;
+          document.getElementById('connectBtn').textContent = '已连接';
+          document.getElementById('connectBtn').disabled = true;
+        } catch (error) {
+          log(`❌ 连接失败: ${error.message}`, 'error');
+          console.error(error);
+        }
+      });
+
+      // 测试存款
+      document.getElementById('depositBtn').addEventListener('click', async () => {
+        try {
+          const amount = document.getElementById('depositAmount').value;
+          if (!amount || parseFloat(amount) <= 0) {
+            throw new Error('请输入有效金额');
+          }
+
+          log(`开始存款: ${amount} ETH`);
+          log('存款类型: 任何人凭密码可提取');
+
+          const depositBtn = document.getElementById('depositBtn');
+          depositBtn.disabled = true;
+          depositBtn.textContent = '处理中...';
+
+          const result = await sdk.deposit({
+            transferType: TransferType.ANYONE_WITH_PASSWORD,
+            amount: amount,
+          });
+
+          log(`✅ 存款成功!`, 'success');
+          log(`交易哈希: ${result.transactionHash}`);
+          log(`区块号: ${result.blockNumber}`);
+          log(`密码地址: ${result.passwordWallet.address}`);
+          log(`⚠️ 密码私钥: ${result.passwordWallet.privateKey}`, 'success');
+
+          // 显示密码
+          currentPassword = result.passwordWallet.privateKey;
+          document.getElementById('passwordKey').value = currentPassword;
+          document.getElementById('passwordDisplay').style.display = 'block';
+          document.getElementById('withdrawPassword').value = currentPassword;
+
+          depositBtn.disabled = false;
+          depositBtn.textContent = '测试存款';
+        } catch (error) {
+          log(`❌ 存款失败: ${error.message}`, 'error');
+          console.error(error);
+          document.getElementById('depositBtn').disabled = false;
+          document.getElementById('depositBtn').textContent = '测试存款';
+        }
+      });
+
+      // 查询金库
+      document.getElementById('checkVaultBtn').addEventListener('click', async () => {
+        try {
+          const password = document.getElementById('withdrawPassword').value;
+          if (!password) {
+            throw new Error('请输入密码');
+          }
+
+          log(`查询金库，密码: ${password.substring(0, 10)}...`);
+
+          const checkBtn = document.getElementById('checkVaultBtn');
+          checkBtn.disabled = true;
+          checkBtn.textContent = '查询中...';
+
+          const vaultInfo = await sdk.getVaultInfo(password);
+
+          log(`✅ 金库信息:`, 'success');
+          log(`  - 是否已发布: ${vaultInfo.isPublished}`);
+          log(`  - 转账类型: ${vaultInfo.transferType}`);
+          log(`  - 余额: ${vaultInfo.balanceEth} ETH`);
+          log(`  - 密码地址: ${vaultInfo.passwordAddress}`);
+          log(`  - 存款人: ${vaultInfo.depositor}`);
+          log(`  - 允许地址: ${vaultInfo.allowAddress}`);
+
+          checkBtn.disabled = false;
+          checkBtn.textContent = '查询金库';
+        } catch (error) {
+          log(`❌ 查询失败: ${error.message}`, 'error');
+          console.error(error);
+          document.getElementById('checkVaultBtn').disabled = false;
+          document.getElementById('checkVaultBtn').textContent = '查询金库';
+        }
+      });
+
+      // 测试提款
+      document.getElementById('withdrawBtn').addEventListener('click', async () => {
+        try {
+          const password = document.getElementById('withdrawPassword').value;
+          const amount = document.getElementById('withdrawAmount').value;
+
+          if (!password) {
+            throw new Error('请输入密码');
+          }
+          if (!amount || parseFloat(amount) <= 0) {
+            throw new Error('请输入有效金额');
+          }
+
+          log(`开始提款: ${amount} ETH`);
+
+          const withdrawBtn = document.getElementById('withdrawBtn');
+          withdrawBtn.disabled = true;
+          withdrawBtn.textContent = '处理中...';
+
+          const result = await sdk.withdraw({
+            password: password,
+            amount: amount,
+          });
+
+          log(`✅ 提款成功!`, 'success');
+          log(`交易哈希: ${result.transactionHash}`);
+          log(`提款金额: ${result.amount} ETH`);
+
+          withdrawBtn.disabled = false;
+          withdrawBtn.textContent = '测试提款';
+        } catch (error) {
+          log(`❌ 提款失败: ${error.message}`, 'error');
+          console.error(error);
+          document.getElementById('withdrawBtn').disabled = false;
+          document.getElementById('withdrawBtn').textContent = '测试提款';
+        }
+      });
+
+      // 加载任务
+      document.getElementById('loadTasksBtn').addEventListener('click', async () => {
+        try {
+          log('加载赏金任务列表...');
+
+          const loadBtn = document.getElementById('loadTasksBtn');
+          loadBtn.disabled = true;
+          loadBtn.textContent = '加载中...';
+
+          const feeRate = await sdk.getFeeRate();
+          log(`当前佣金费率: ${feeRate / 10}%`);
+
+          const tasks = await sdk.getBountyTasks();
+          log(`✅ 找到 ${tasks.length} 个赏金任务`, 'success');
+
+          tasks.forEach((task, index) => {
+            log(`任务 #${index + 1}:`);
+            log(`  - 总金额: ${task.totalReward} ETH`);
+            log(`  - 佣金: ${task.commission} ETH`);
+          });
+
+          if (tasks.length === 0) {
+            log('当前没有可用的赏金任务');
+          }
+
+          loadBtn.disabled = false;
+          loadBtn.textContent = '加载任务列表';
+        } catch (error) {
+          log(`❌ 加载失败: ${error.message}`, 'error');
+          console.error(error);
+          document.getElementById('loadTasksBtn').disabled = false;
+          document.getElementById('loadTasksBtn').textContent = '加载任务列表';
+        }
+      });
+
+      // 初始化日志
+      log('页面已加载，请先连接 MetaMask');
+      log('确保你已经切换到 Sepolia 测试网');
+      log('确保你的钱包有足够的测试 ETH');
+    </script>
+  </body>
+</html>

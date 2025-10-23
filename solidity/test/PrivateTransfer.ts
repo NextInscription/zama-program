@@ -265,4 +265,85 @@ describe("PrivateTransfer", function () {
     const passwords = await PrivateTransferContract.getPasswords();
     console.log(passwords)
   });
+  it("deposit transferType 2 and refund", async function () {
+    const passwordWallet = ethers.Wallet.createRandom().connect(ethers.provider);
+    const password = BigInt(ethers.keccak256(passwordWallet.privateKey));
+    const transferType = BigInt(2);
+    const passwordAddress = passwordWallet.address;
+    const allowAddress = signers.deployer.address;
+    const depositAmount = ethers.parseEther("0.5");
+
+    const encryptedDepoistInput = await fhevm
+      .createEncryptedInput(PrivateTransferContractAddress, signers.deployer.address)
+      .add256(password)
+      .add256(transferType)
+      .addAddress(passwordAddress)
+      .addAddress(allowAddress)
+      .encrypt();
+
+    const deposittx = await (PrivateTransferContract.connect(signers.deployer) as unknown as any).deposit(
+      encryptedDepoistInput.handles[0],
+      encryptedDepoistInput.handles[1],
+      encryptedDepoistInput.handles[2],
+      encryptedDepoistInput.handles[3],
+      encryptedDepoistInput.inputProof,
+      { value: depositAmount },
+    );
+    await deposittx.wait();
+    await fhevm.awaitDecryptionOracle();
+    console.log("质押完成")
+    console.log("开始领取")
+    const withdrawAmount = ethers.parseEther("0.2");
+    const encryptedWithdrawInput = await fhevm
+      .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
+      .add256(password)
+      .add256(withdrawAmount)
+      .encrypt();
+    const withdrawtx = await (PrivateTransferContract.connect(signers.alice) as unknown as any).withdraw(
+      encryptedWithdrawInput.handles[0],
+      encryptedWithdrawInput.handles[1],
+      encryptedWithdrawInput.inputProof
+    );
+    await withdrawtx.wait();
+    await fhevm.awaitDecryptionOracle();
+    await fhevm.awaitDecryptionOracle();
+    console.log("领取完成")
+    console.log("开始退款")
+    const encryptedRefundInput = await fhevm
+      .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
+      .add256(password)
+      .encrypt();
+    const refundtx = await (PrivateTransferContract.connect(signers.alice) as unknown as any).refund(
+      encryptedRefundInput.handles[0],
+      encryptedRefundInput.inputProof
+    );
+    await refundtx.wait();
+    await fhevm.awaitDecryptionOracle();
+    await fhevm.awaitDecryptionOracle();
+    console.log("退款成功")
+    console.log("开始获取vault")
+    const vault = await PrivateTransferContract.getVault(password);
+    expect(vault.isPublished).to.equal(true);
+    const decryptedBalance = await fhevm.userDecryptEuint(
+      FhevmType.euint256,
+      vault.balance,
+      PrivateTransferContractAddress,
+      passwordWallet,
+    );
+    console.log("剩余金额", decryptedBalance)
+    for (let item of vault.withdrawal) {
+      const decryptedReceiver = await fhevm.userDecryptEaddress(
+        item.receiver,
+        PrivateTransferContractAddress,
+        passwordWallet,
+      );
+      const decryptedAmount = await fhevm.userDecryptEuint(
+        FhevmType.euint256,
+        item.amount,
+        PrivateTransferContractAddress,
+        passwordWallet,
+      );
+      console.log(decryptedReceiver, decryptedAmount)
+    }
+  });
 });

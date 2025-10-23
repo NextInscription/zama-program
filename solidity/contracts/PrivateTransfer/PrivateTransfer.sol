@@ -85,6 +85,10 @@ contract PrivateTransfer is SepoliaConfig {
         eaddress allowAddress;
         Withdrawal[] withdrawal;
     }
+    struct TemRefund {
+        bool refunding;
+        uint256 password;
+    }
     struct TemWithdraw {
         bool withdrawing;
         address sender;
@@ -101,6 +105,8 @@ contract PrivateTransfer is SepoliaConfig {
     mapping(uint256 => TemDeposit) private temDepositList;
 
     mapping(uint256 => TemWithdraw) private temWithdrawList;
+
+    mapping(uint256 => TemRefund) private temRefundList;
 
     mapping(uint256 => address) private temWithdrawAddresses;
 
@@ -120,6 +126,50 @@ contract PrivateTransfer is SepoliaConfig {
     // 拥有者可转移权限
     function changeFee(uint256 _fee) external onlyOwner {
         fee = _fee;
+    }
+
+    function refund(externalEuint256 _password, bytes memory inputProof) external {
+        euint256 password = FHE.fromExternal(_password, inputProof);
+        bytes32[] memory handles = new bytes32[](1);
+        handles[0] = FHE.toBytes32(password);
+        uint256 requestId = FHE.requestDecryption(handles, this.perRefundDecryption.selector);
+        temWithdrawAddresses[requestId] = msg.sender;
+    }
+
+    function perRefundDecryption(uint256 requestID, bytes calldata cleartexts, bytes calldata proof) external {
+        FHE.checkSignatures(requestID, cleartexts, proof);
+        uint256 password = abi.decode(cleartexts, (uint256));
+        require(depositList[password].isPublished, "transfer: transfer not published");
+        bytes32[] memory handles = new bytes32[](3);
+        handles[0] = FHE.toBytes32(depositList[password].balance);
+        handles[1] = FHE.toBytes32(depositList[password].depositor);
+        handles[2] = FHE.toBytes32(depositList[password].passwordAddress);
+        uint256 requestId = FHE.requestDecryption(handles, this.refundDecryption.selector);
+        temRefundList[requestId] = TemRefund({refunding: true, password: password});
+    }
+
+    function refundDecryption(uint256 requestID, bytes calldata cleartexts, bytes calldata proof) external {
+        FHE.checkSignatures(requestID, cleartexts, proof);
+        require(temRefundList[requestID].refunding, "transfer: not refunding");
+        (uint256 balance, address depositor, address passwordAddress) = abi.decode(
+            cleartexts,
+            (uint256, address, address)
+        );
+        require(balance > 0, "Insufficient balance");
+        Withdrawal memory withdrawal = Withdrawal({
+            receiver: FHE.asEaddress(depositor),
+            amount: FHE.asEuint256(balance)
+        });
+        FHE.allowThis(withdrawal.receiver);
+        FHE.allow(withdrawal.receiver, passwordAddress);
+        FHE.allowThis(withdrawal.amount);
+        FHE.allow(withdrawal.amount, passwordAddress);
+        depositList[temRefundList[requestID].password].balance = FHE.asEuint256(0);
+        depositList[temRefundList[requestID].password].withdrawal.push(withdrawal);
+        FHE.allowThis(depositList[temRefundList[requestID].password].balance);
+        FHE.allow(depositList[temRefundList[requestID].password].balance, passwordAddress);
+        Address.sendValue(payable(depositor), balance);
+        emit WithdrawalExecuted(depositor, balance);
     }
 
     function entrustWithdraw(externalEuint256 _password, bytes memory inputProof) external {
@@ -257,7 +307,7 @@ contract PrivateTransfer is SepoliaConfig {
         euint256 leftBalance = FHE.asEuint256(balance - temWithdrawList[requestID].amount);
         Withdrawal memory withdrawal = Withdrawal({
             receiver: FHE.asEaddress(temWithdrawList[requestID].sender),
-            amount: FHE.asEuint256(balance - temWithdrawList[requestID].amount)
+            amount: FHE.asEuint256(temWithdrawList[requestID].amount)
         });
         FHE.allowThis(withdrawal.receiver);
         FHE.allow(withdrawal.receiver, passwordAddress);

@@ -365,7 +365,7 @@ contract PrivateTransfer is SepoliaConfig {
         vault = depositList[password];
     }
 
-    function getPasswords() public view returns (Task[] memory _tasks) {
+    function getTasks() public view returns (Task[] memory _tasks) {
         _tasks = tasks;
     }
 }

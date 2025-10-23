@@ -31,10 +31,11 @@
   },
   "devDependencies": {
     "@fhevm/hardhat-plugin": "^0.1.0",
+    "@fhevm/mock-utils": "^0.1.0",
     "@nomicfoundation/hardhat-chai-matchers": "^2.1.0",
     "@nomicfoundation/hardhat-ethers": "^3.1.0",
     "@nomicfoundation/hardhat-network-helpers": "^1.1.0",
-    "@nomicfoundation/hardhat-verify": "^2.1.0",
+    "@nomicfoundation/hardhat-verify": "^2.0.11",
     "@typechain/ethers-v6": "^0.5.1",
     "@typechain/hardhat": "^9.1.0",
     "@types/chai": "^4.3.20",
@@ -83,7 +84,8 @@
     "chain": "hardhat node --network hardhat --no-deploy",
     "deploy:localhost": "hardhat deploy --network localhost",
     "deploy:sepolia": "hardhat deploy --network sepolia",
-    "verify:sepolia": "hardhat verify --network sepolia"
+    "verify:sepolia": "hardhat verify --network sepolia",
+    "verify:contract": "npx hardhat verify --network sepolia 0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D \"PrivateTransfer\""
   },
   "overrides": {
     "ws@>=7.0.0 <7.5.10": ">=7.5.10",

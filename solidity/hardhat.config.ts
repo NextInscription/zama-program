@@ -22,10 +22,13 @@ const config: HardhatUserConfig = {
   namedAccounts: {
     deployer: 0,
   },
+  // @ts-ignore - etherscan config from hardhat-verify plugin
   etherscan: {
-    apiKey: {
-      sepolia: vars.get("ETHERSCAN_API_KEY", ""),
-    },
+    apiKey: "",
+  },
+  // @ts-ignore - sourcify config from hardhat-verify plugin
+  sourcify: {
+    enabled: false,
   },
   gasReporter: {
     currency: "USD",

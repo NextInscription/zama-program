@@ -7,13 +7,12 @@
 
 export { PrivateTransferSDK } from './PrivateTransferSDK';
 
-// Re-export initSDK from @zama-fhe/relayer-sdk for convenience
-export { initSDK } from '@zama-fhe/relayer-sdk/web';
+// Re-export initSDK and SepoliaConfig from @zama-fhe/relayer-sdk for convenience
+export { initSDK, SepoliaConfig } from '@zama-fhe/relayer-sdk/web';
 
 export {
   TransferType,
   type SDKConfig,
-  type FHEConfig,
   type DepositParams,
   type DepositResult,
   type GeneratedWallet,

@@ -213,7 +213,10 @@ export class PrivateTransferSDK {
 
       return {
         transactionHash: receipt.hash,
-        passwordWallet,
+        password: passwordUint256,
+        privateKey: passwordWallet.privateKey,
+        passwordAddress: passwordWallet.address,
+        recipientAddress: targetAddress,
         blockNumber: receipt.blockNumber,
       };
     } catch (error) {
@@ -224,19 +227,19 @@ export class PrivateTransferSDK {
   }
 
   /**
-   * Get vault information by password
-   * @param password The password used during deposit
+   * Get vault information by private key
+   * @param privateKey The private key (password) from deposit result
    * @returns Vault information
    */
-  async getVaultInfo(password: string): Promise<VaultInfo> {
+  async getVaultInfo(privateKey: string): Promise<VaultInfo> {
     if (!this.contract || !this.fheInstance) {
       throw new Error('SDK not initialized. Call initialize() first.');
     }
 
     try {
-      // Generate password wallet from password
-      const passwordWallet = new Wallet(keccak256(Buffer.from(password)));
-      const passwordUint256 = BigInt(passwordWallet.privateKey);
+      // Create wallet from private key
+      const passwordWallet = new Wallet(privateKey);
+      const passwordUint256 = BigInt(privateKey);
 
       // Get vault info from contract
       const vault = await this.contract.getVault(passwordUint256);
@@ -286,8 +289,8 @@ export class PrivateTransferSDK {
     }
 
     // Validate parameters
-    if (!params.password) {
-      throw new Error('Password is required');
+    if (!params.privateKey) {
+      throw new Error('Private key is required');
     }
 
     if (!params.amount || parseFloat(params.amount) <= 0) {
@@ -295,9 +298,8 @@ export class PrivateTransferSDK {
     }
 
     try {
-      // Generate password wallet from password
-      const passwordWallet = new Wallet(keccak256(Buffer.from(params.password)));
-      const passwordUint256 = BigInt(passwordWallet.privateKey);
+      // Convert private key to uint256
+      const passwordUint256 = BigInt(params.privateKey);
 
       const amountWei = parseEther(params.amount);
 
@@ -406,11 +408,10 @@ export class PrivateTransferSDK {
     }
 
     try {
-      // Generate password wallet from password
-      const passwordWallet = new Wallet(keccak256(Buffer.from(params.password)));
-      const passwordUint256 = BigInt(passwordWallet.privateKey);
+      // Use password uint256 directly
+      const passwordUint256 = params.password;
 
-      // Verify password matches the task
+      // Verify password matches the task password
       if (passwordUint256 !== params.task.password) {
         throw new Error('Password does not match this task');
       }
@@ -463,17 +464,16 @@ export class PrivateTransferSDK {
     }
 
     // Validate parameters
-    if (!params.password) {
-      throw new Error('Password is required');
+    if (!params.privateKey) {
+      throw new Error('Private key is required');
     }
 
     try {
-      // Generate password wallet from password
-      const passwordWallet = new Wallet(keccak256(Buffer.from(params.password)));
-      const passwordUint256 = BigInt(passwordWallet.privateKey);
+      // Convert private key to uint256
+      const passwordUint256 = BigInt(params.privateKey);
 
       // Get vault info to get the balance
-      const vaultInfo = await this.getVaultInfo(params.password);
+      const vaultInfo = await this.getVaultInfo(params.privateKey);
 
       // Get signer address
       const signerAddress = await this.config.signer.getAddress();

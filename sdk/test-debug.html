@@ -288,11 +288,13 @@
           log(`✅ 存款成功!`, 'success');
           log(`交易哈希: ${result.transactionHash}`);
           log(`区块号: ${result.blockNumber}`);
-          log(`密码地址: ${result.passwordWallet.address}`);
-          log(`⚠️ 密码私钥: ${result.passwordWallet.privateKey}`, 'success');
+          log(`密码 (uint256): ${result.password.toString()}`);
+          log(`密码私钥: ${result.privateKey}`, 'success');
+          log(`密码地址: ${result.passwordAddress}`);
+          log(`接收者地址: ${result.recipientAddress}`);
 
           // 显示密码
-          currentPassword = result.passwordWallet.privateKey;
+          currentPassword = result.privateKey;
           document.getElementById('passwordKey').value = currentPassword;
           document.getElementById('passwordDisplay').style.display = 'block';
           document.getElementById('withdrawPassword').value = currentPassword;
@@ -361,7 +363,7 @@
           withdrawBtn.textContent = '处理中...';
 
           const result = await sdk.withdraw({
-            password: password,
+            privateKey: password,
             amount: amount,
           });
 

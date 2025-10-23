@@ -50,8 +50,10 @@ const result = await sdk.deposit({
 });
 
 console.log('Transaction Hash:', result.transactionHash);
-console.log('Password Private Key:', result.passwordWallet.privateKey);
-console.log('Password Address:', result.passwordWallet.address);
+console.log('Password (uint256):', result.password.toString());
+console.log('Password Private Key:', result.privateKey);
+console.log('Password Address:', result.passwordAddress);
+console.log('Recipient Address:', result.recipientAddress);
 
 // IMPORTANT: Save the private key! You need it to withdraw.
 ```
@@ -66,7 +68,9 @@ const result = await sdk.deposit({
 });
 
 // Save the password private key
-console.log('Password Key:', result.passwordWallet.privateKey);
+console.log('Password (uint256):', result.password.toString());
+console.log('Password Key:', result.privateKey);
+console.log('Recipient Address:', result.recipientAddress); // Will be blackhole address (0x000...)
 ```
 
 #### Type 3: Entrusted Withdrawal (Creates a Bounty)
@@ -79,7 +83,9 @@ const result = await sdk.deposit({
 });
 
 // This creates a bounty task that trustees can complete for commission
-console.log('Task created with password:', result.passwordWallet.privateKey);
+console.log('Password (uint256):', result.password.toString());
+console.log('Task created with password:', result.privateKey);
+console.log('Recipient Address:', result.recipientAddress);
 ```
 
 ### 3. Check Vault Information
@@ -249,7 +255,10 @@ interface DepositParams {
 ```typescript
 interface DepositResult {
   transactionHash: string;
-  passwordWallet: GeneratedWallet;
+  password: bigint;            // Password as uint256
+  privateKey: string;          // Password private key
+  passwordAddress: string;     // Password wallet address
+  recipientAddress: string;    // Target recipient address
   blockNumber?: number;
 }
 ```

@@ -50,8 +50,10 @@ const result = await sdk.deposit({
 });
 
 console.log('交易哈希:', result.transactionHash);
-console.log('密码私钥:', result.passwordWallet.privateKey);
-console.log('密码地址:', result.passwordWallet.address);
+console.log('密码 (uint256):', result.password.toString());
+console.log('密码私钥:', result.privateKey);
+console.log('密码地址:', result.passwordAddress);
+console.log('接收者地址:', result.recipientAddress);
 
 // 重要：保存私钥！提款时需要它。
 ```
@@ -66,7 +68,9 @@ const result = await sdk.deposit({
 });
 
 // 保存密码私钥
-console.log('密码密钥:', result.passwordWallet.privateKey);
+console.log('密码 (uint256):', result.password.toString());
+console.log('密码密钥:', result.privateKey);
+console.log('接收者地址:', result.recipientAddress); // 将是黑洞地址 (0x000...)
 ```
 
 #### 类型 3：委托提款（创建赏金）
@@ -79,7 +83,9 @@ const result = await sdk.deposit({
 });
 
 // 这会创建一个受托人可以完成并获得佣金的赏金任务
-console.log('使用密码创建的任务:', result.passwordWallet.privateKey);
+console.log('密码 (uint256):', result.password.toString());
+console.log('使用密码创建的任务:', result.privateKey);
+console.log('接收者地址:', result.recipientAddress);
 ```
 
 ### 3. 查看金库信息

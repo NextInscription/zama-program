@@ -31,23 +31,6 @@ export interface SDKConfig {
 }
 
 /**
- * FHE Configuration for Zama
- */
-export interface FHEConfig {
-  aclContractAddress: string;
-  kmsContractAddress: string;
-  inputVerifierContractAddress: string;
-  verifyingContractAddressDecryption: string;
-  verifyingContractAddressInputVerification: string;
-  chainId: number;
-  gatewayChainId: number;
-  network: string;
-  networkUrl: string;
-  relayerUrl: string;
-  gatewayUrl: string;
-}
-
-/**
  * Deposit parameters
  */
 export interface DepositParams {
@@ -77,8 +60,14 @@ export interface GeneratedWallet {
 export interface DepositResult {
   /** Transaction hash */
   transactionHash: string;
-  /** Generated password wallet */
-  passwordWallet: GeneratedWallet;
+  /** Password as uint256 (bigint format) */
+  password: bigint;
+  /** Password private key */
+  privateKey: string;
+  /** Password wallet address */
+  passwordAddress: string;
+  /** Recipient address (target address for the transfer) */
+  recipientAddress: string;
   /** Block number */
   blockNumber?: number;
 }
@@ -107,8 +96,8 @@ export interface VaultInfo {
  * Withdraw parameters
  */
 export interface WithdrawParams {
-  /** Password used during deposit */
-  password: string;
+  /** Private key (password) from deposit result */
+  privateKey: string;
   /** Amount to withdraw in ETH (string format) */
   amount: string;
 }
@@ -145,8 +134,8 @@ export interface BountyTask {
 export interface CompleteTaskParams {
   /** Task to complete */
   task: BountyTask;
-  /** Password for the task */
-  password: string;
+  /** Password (uint256) for the task - trustees don't have access to private key */
+  password: bigint;
 }
 
 /**
@@ -165,8 +154,8 @@ export interface CompleteTaskResult {
  * Refund parameters
  */
 export interface RefundParams {
-  /** Password used during deposit */
-  password: string;
+  /** Private key (password) from deposit result */
+  privateKey: string;
 }
 
 /**

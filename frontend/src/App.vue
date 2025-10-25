@@ -3,7 +3,6 @@ import { ref } from 'vue'
 import Deposit from './components/Deposit.vue'
 import Withdraw from './components/Withdraw.vue'
 import BountyList from './components/BountyList.vue'
-
 type Tab = 'deposit' | 'withdraw' | 'bounty'
 
 const activeTab = ref<Tab>('deposit')
@@ -30,22 +29,13 @@ function setTab(tab: Tab) {
     <main class="main">
       <div class="container">
         <div class="tabs">
-          <button
-            :class="['tab-button', { active: activeTab === 'deposit' }]"
-            @click="setTab('deposit')"
-          >
+          <button :class="['tab-button', { active: activeTab === 'deposit' }]" @click="setTab('deposit')">
             Deposit
           </button>
-          <button
-            :class="['tab-button', { active: activeTab === 'withdraw' }]"
-            @click="setTab('withdraw')"
-          >
+          <button :class="['tab-button', { active: activeTab === 'withdraw' }]" @click="setTab('withdraw')">
             Withdraw
           </button>
-          <button
-            :class="['tab-button', { active: activeTab === 'bounty' }]"
-            @click="setTab('bounty')"
-          >
+          <button :class="['tab-button', { active: activeTab === 'bounty' }]" @click="setTab('bounty')">
             Bounty List
           </button>
         </div>

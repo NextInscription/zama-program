@@ -1,24 +1,33 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useWallet } from '../stores/wallet'
-import { BrowserProvider, Contract, Wallet, keccak256, parseEther, hexlify } from 'ethers'
+import { BrowserProvider, Contract, Wallet, parseEther, formatEther as ethersFormatEther, hexlify } from 'ethers'
 import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/web'
 import { CONTRACT_ADDRESS } from '../config/web3modal'
 import contractABI from '../constant/abi.json'
 
-// Initialize FHE instance
-const fheInstance = await createInstance(SepoliaConfig)
 const { address, chainId, isConnected, walletProvider } = useWallet()
-const password = ref('')
+let fheInstance: any = null
+
+// Initialize FHE instance on demand
+async function getFheInstance() {
+  if (!fheInstance) {
+    fheInstance = await createInstance(SepoliaConfig)
+  }
+  return fheInstance
+}
+const privateKey = ref('')
 const withdrawAmount = ref('')
 const loading = ref(false)
 const loadingVault = ref(false)
+const loadingRefund = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error' | ''>('')
 const vaultInfo = ref<any>(null)
 
 const isWalletConnected = computed(() => isConnected.value)
 const hasVaultInfo = computed(() => vaultInfo.value !== null)
+const hasBalance = computed(() => vaultInfo.value && parseFloat(vaultInfo.value.balance) > 0)
 
 async function loadVaultInfo() {
   if (!walletProvider.value || !isConnected.value) {
@@ -26,8 +35,8 @@ async function loadVaultInfo() {
     return
   }
 
-  if (!password.value) {
-    showMessage('Please enter your password', 'error')
+  if (!privateKey.value) {
+    showMessage('Please enter your private key', 'error')
     return
   }
 
@@ -41,38 +50,76 @@ async function loadVaultInfo() {
     const signer = await provider.getSigner()
     const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
 
-    // Generate password wallet from password
-    const passwordWallet = new Wallet(keccak256(Buffer.from(password.value)))
-    const passwordUint256 = BigInt(passwordWallet.privateKey)
+    // Create wallet from private key
+    const wallet = new Wallet(privateKey.value)
+    const privateKeyUint256 = BigInt(wallet.privateKey)
 
     // Get vault info from contract
-    const vault = await contract.getVault(passwordUint256)
-
+    const vault = await contract.getVault(privateKeyUint256)
+    console.log(vault)
     if (!vault.isPublished) {
-      showMessage('No vault found for this password', 'error')
+      showMessage('No vault found for this private key', 'error')
       return
     }
 
-    // Decrypt vault information using publicDecrypt
-    // Note: In production, you might need to use userDecrypt with proper authentication
+    // Decrypt vault information using userDecrypt
     try {
-      const handles = [
-        hexlify(vault.transferType),
-        hexlify(vault.balance),
-        hexlify(vault.depositor),
-        hexlify(vault.allowAddress)
+      const fhe = await getFheInstance()
+
+      // Generate keypair for decryption
+      const keypair = fhe.generateKeypair()
+
+      // Store handles as strings
+      const transferTypeHandle = hexlify(vault.transferType)
+      const balanceHandle = hexlify(vault.balance)
+      const depositorHandle = hexlify(vault.depositor)
+      const allowAddressHandle = hexlify(vault.allowAddress)
+
+      // Prepare handle-contract pairs
+      const handleContractPairs = [
+        { handle: transferTypeHandle, contractAddress: CONTRACT_ADDRESS },
+        { handle: balanceHandle, contractAddress: CONTRACT_ADDRESS },
+        { handle: depositorHandle, contractAddress: CONTRACT_ADDRESS },
+        { handle: allowAddressHandle, contractAddress: CONTRACT_ADDRESS }
       ]
 
-      const decrypted = await fheInstance.publicDecrypt(handles)
+      // Create EIP712 signature request
+      const startTimeStamp = Math.floor(Date.now() / 1000).toString()
+      const durationDays = '10'
+      const contractAddresses = [CONTRACT_ADDRESS]
 
+      const eip712 = fhe.createEIP712(
+        keypair.publicKey,
+        contractAddresses,
+        startTimeStamp,
+        durationDays
+      )
+
+      // Sign with the private key wallet
+      const signature = await wallet.signTypedData(
+        eip712.domain,
+        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
+        eip712.message
+      )
+
+      // Perform user decryption
+      const result = await fhe.userDecrypt(
+        handleContractPairs,
+        keypair.privateKey,
+        keypair.publicKey,
+        signature.replace('0x', ''),
+        contractAddresses,
+        wallet.address,
+        startTimeStamp,
+        durationDays
+      )
       vaultInfo.value = {
-        transferType: Number(decrypted[handles[0]]),
-        balance: decrypted[handles[1]].toString(),
-        depositor: decrypted[handles[2]].toString(),
-        allowAddress: decrypted[handles[3]].toString(),
-        passwordAddress: passwordWallet.address
+        transferType: Number(result[transferTypeHandle]),
+        balance: result[balanceHandle].toString(),
+        depositor: result[depositorHandle].toString(),
+        allowAddress: result[allowAddressHandle].toString(),
+        walletAddress: wallet.address
       }
-
       showMessage('Vault information loaded successfully', 'success')
     } catch (decryptError) {
       console.error('Decryption error:', decryptError)
@@ -112,19 +159,20 @@ async function handleWithdraw() {
     const signer = await provider.getSigner()
     const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
 
-    const passwordWallet = new Wallet(keccak256(Buffer.from(password.value)))
-    const passwordUint256 = BigInt(passwordWallet.privateKey)
+    const wallet = new Wallet(privateKey.value)
+    const privateKeyUint256 = BigInt(wallet.privateKey)
 
-    const amountWei = parseEther(withdrawAmount.value)
+    const amountWei = parseEther(withdrawAmount.value.toString())
 
-    // Encrypt password and amount
-    const encryptedInput = await fheInstance
+    // Encrypt private key and amount
+    const fhe = await getFheInstance()
+    const encryptedInput = await fhe
       .createEncryptedInput(CONTRACT_ADDRESS, address.value!)
-      .add256(passwordUint256)
+      .add256(privateKeyUint256)
       .add256(BigInt(amountWei.toString()))
       .encrypt()
 
-    const handles = encryptedInput.handles.map(h => hexlify(h))
+    const handles = encryptedInput.handles.map((h: Uint8Array) => hexlify(h))
     const inputProof = hexlify(encryptedInput.inputProof)
 
     // Call withdraw function
@@ -143,13 +191,73 @@ async function handleWithdraw() {
     // Reset form
     withdrawAmount.value = ''
     vaultInfo.value = null
-    password.value = ''
+    privateKey.value = ''
 
   } catch (error: any) {
     console.error('Withdrawal error:', error)
     showMessage(error.message || 'Withdrawal failed', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+async function handleRefund() {
+  if (!walletProvider.value || !isConnected.value) {
+    showMessage('Please connect your wallet first', 'error')
+    return
+  }
+
+  if (!hasVaultInfo.value) {
+    showMessage('Please load vault information first', 'error')
+    return
+  }
+
+  if (!hasBalance.value) {
+    showMessage('No balance to refund', 'error')
+    return
+  }
+
+  try {
+    loadingRefund.value = true
+    message.value = ''
+
+    // Get provider and contract
+    const provider = new BrowserProvider(walletProvider.value)
+    const signer = await provider.getSigner()
+    const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
+
+    const wallet = new Wallet(privateKey.value)
+    const privateKeyUint256 = BigInt(wallet.privateKey)
+
+    // Encrypt private key
+    const fhe = await getFheInstance()
+    const encryptedInput = await fhe
+      .createEncryptedInput(CONTRACT_ADDRESS, address.value!)
+      .add256(privateKeyUint256)
+      .encrypt()
+
+    const handle = hexlify(encryptedInput.handles[0])
+    const inputProof = hexlify(encryptedInput.inputProof)
+
+    // Call refund function
+    const tx = await contract.refund(handle, inputProof)
+
+    showMessage('Refund transaction submitted. Waiting for confirmation...', 'success')
+
+    await tx.wait()
+
+    showMessage('Refund successful! All funds have been returned.', 'success')
+
+    // Reset form
+    withdrawAmount.value = ''
+    vaultInfo.value = null
+    privateKey.value = ''
+
+  } catch (error: any) {
+    console.error('Refund error:', error)
+    showMessage(error.message || 'Refund failed', 'error')
+  } finally {
+    loadingRefund.value = false
   }
 }
 
@@ -166,7 +274,7 @@ function showMessage(msg: string, type: 'success' | 'error') {
 
 function formatEther(wei: string): string {
   try {
-    return (BigInt(wei) / BigInt(1e18)).toString()
+    return ethersFormatEther(wei)
   } catch {
     return '0'
   }
@@ -186,7 +294,7 @@ function getTransferTypeName(type: number): string {
   <div class="withdraw">
     <div class="card">
       <h2>Withdraw Funds</h2>
-      <p class="text-secondary">Enter your password to access and withdraw from your vault</p>
+      <p class="text-secondary">Enter your private key to access and withdraw from your vault</p>
 
       <div v-if="!isWalletConnected" class="warning">
         <p>Please connect your wallet to withdraw funds</p>
@@ -194,21 +302,13 @@ function getTransferTypeName(type: number): string {
 
       <div v-else class="form">
         <div class="form-group">
-          <label for="password">Password</label>
-          <input
-            id="password"
-            v-model="password"
-            type="password"
-            placeholder="Enter your deposit password"
-            :disabled="loading || loadingVault"
-          />
+          <label for="privateKey">Private Key</label>
+          <input id="privateKey" v-model="privateKey" type="password" placeholder="Enter your vault private key"
+            :disabled="loading || loadingVault || loadingRefund" />
         </div>
 
-        <button
-          class="secondary-button"
-          :disabled="loadingVault || loading || !password"
-          @click="loadVaultInfo"
-        >
+        <button class="secondary-button" :disabled="loadingVault || loading || loadingRefund || !privateKey"
+          @click="loadVaultInfo">
           {{ loadingVault ? 'Loading...' : 'Load Vault Information' }}
         </button>
 
@@ -224,8 +324,8 @@ function getTransferTypeName(type: number): string {
               <span class="info-value text-success">{{ formatEther(vaultInfo.balance) }} ETH</span>
             </div>
             <div class="info-item">
-              <span class="info-label">Password Address:</span>
-              <span class="info-value small">{{ vaultInfo.passwordAddress }}</span>
+              <span class="info-label">Wallet Address:</span>
+              <span class="info-value small">{{ vaultInfo.walletAddress }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">Depositor:</span>
@@ -239,28 +339,23 @@ function getTransferTypeName(type: number): string {
 
           <div class="form-group" style="margin-top: 2rem;">
             <label for="withdrawAmount">Withdrawal Amount (ETH)</label>
-            <input
-              id="withdrawAmount"
-              v-model="withdrawAmount"
-              type="number"
-              step="0.001"
-              min="0"
-              :max="formatEther(vaultInfo.balance)"
-              placeholder="0.0"
-              :disabled="loading"
-            />
+            <input id="withdrawAmount" v-model="withdrawAmount" type="number" step="0.001" min="0"
+              :max="formatEther(vaultInfo.balance)" placeholder="0.0" :disabled="loading || loadingRefund" />
             <p class="hint">
               Maximum: {{ formatEther(vaultInfo.balance) }} ETH
             </p>
           </div>
 
-          <button
-            class="submit-button"
-            :disabled="loading || !withdrawAmount"
-            @click="handleWithdraw"
-          >
-            {{ loading ? 'Processing...' : 'Withdraw' }}
-          </button>
+          <div class="button-group">
+            <button class="submit-button" :disabled="loading || loadingRefund || !withdrawAmount"
+              @click="handleWithdraw">
+              {{ loading ? 'Processing...' : 'Withdraw' }}
+            </button>
+
+            <button v-if="hasBalance" class="refund-button" :disabled="loading || loadingRefund" @click="handleRefund">
+              {{ loadingRefund ? 'Processing...' : 'Refund All' }}
+            </button>
+          </div>
         </div>
 
         <div v-if="message" :class="['message', messageType]">
@@ -370,9 +465,40 @@ function getTransferTypeName(type: number): string {
   color: var(--warning-color);
 }
 
-.submit-button {
-  width: 100%;
+.button-group {
+  display: flex;
+  gap: 1rem;
   margin-top: 1rem;
+}
+
+.submit-button {
+  flex: 1;
+}
+
+.refund-button {
+  flex: 1;
+  background-color: #ff6b6b;
+  border: none;
+  color: white;
+  padding: 1rem 2rem;
+  border-radius: 8px;
+  font-size: 1.1em;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.3);
+}
+
+.refund-button:hover:not(:disabled) {
+  background-color: #ff5252;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(255, 107, 107, 0.4);
+}
+
+.refund-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .message {
@@ -392,5 +518,11 @@ function getTransferTypeName(type: number): string {
   background-color: rgba(255, 56, 96, 0.1);
   border: 1px solid var(--error-color);
   color: var(--error-color);
+}
+
+@media (max-width: 768px) {
+  .button-group {
+    flex-direction: column;
+  }
 }
 </style>

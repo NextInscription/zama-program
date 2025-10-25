@@ -12,9 +12,13 @@
       "require": "./dist/index.js"
     }
   },
+  "files": [
+    "dist",
+    "public"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "build": "vite build",
+    "dev": "vite build --watch",
     "typecheck": "tsc --noEmit",
     "debug": "npm run build && npx vite --open test-debug.html",
     "debug:lan": "npm run build && npx vite --host 0.0.0.0 --open test-debug.html",
@@ -41,10 +45,17 @@
     "process": "^0.11.10",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0",
-    "vite": "^7.1.12"
+    "vite": "^7.1.12",
+    "vite-plugin-dts": "^4.5.4"
   },
   "peerDependencies": {
     "@zama-fhe/relayer-sdk": ">=0.2.0",
-    "ethers": ">=6.0.0"
+    "ethers": ">=6.0.0",
+    "vite": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   }
 }

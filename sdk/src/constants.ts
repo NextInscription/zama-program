@@ -160,7 +160,7 @@ export const CONTRACT_ABI = [
   },
   {
     inputs: [],
-    name: 'getPasswords',
+    name: 'getTasks',
     outputs: [
       {
         components: [

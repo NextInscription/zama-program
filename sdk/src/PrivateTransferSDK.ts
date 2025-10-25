@@ -236,10 +236,14 @@ export class PrivateTransferSDK {
       throw new Error('SDK not initialized. Call initialize() first.');
     }
 
+    if (!this.config.signer) {
+      throw new Error('Signer not available. Please provide a signer.');
+    }
+
     try {
       // Create wallet from private key
-      const passwordWallet = new Wallet(privateKey);
-      const passwordUint256 = BigInt(privateKey);
+      const wallet = new Wallet(privateKey);
+      const passwordUint256 = BigInt(wallet.privateKey);
 
       // Get vault info from contract
       const vault = await this.contract.getVault(passwordUint256);
@@ -248,26 +252,64 @@ export class PrivateTransferSDK {
         throw new Error('No vault found for this password');
       }
 
-      // Decrypt vault information
-      const handles = [
-        hexlify(vault.transferType),
-        hexlify(vault.balance),
-        hexlify(vault.depositor),
-        hexlify(vault.allowAddress),
+      // Generate keypair for decryption
+      const keypair = this.fheInstance.generateKeypair();
+
+      // Store handles as strings
+      const transferTypeHandle = hexlify(vault.transferType);
+      const balanceHandle = hexlify(vault.balance);
+      const depositorHandle = hexlify(vault.depositor);
+      const allowAddressHandle = hexlify(vault.allowAddress);
+
+      // Prepare handle-contract pairs
+      const handleContractPairs = [
+        { handle: transferTypeHandle, contractAddress: this.config.contractAddress },
+        { handle: balanceHandle, contractAddress: this.config.contractAddress },
+        { handle: depositorHandle, contractAddress: this.config.contractAddress },
+        { handle: allowAddressHandle, contractAddress: this.config.contractAddress },
       ];
 
-      const decrypted = await this.fheInstance.publicDecrypt(handles);
+      // Create EIP712 signature request
+      const startTimeStamp = Math.floor(Date.now() / 1000).toString();
+      const durationDays = '10';
+      const contractAddresses = [this.config.contractAddress];
 
-      const balanceWei = decrypted[handles[1]].toString();
+      const eip712 = this.fheInstance.createEIP712(
+        keypair.publicKey,
+        contractAddresses,
+        startTimeStamp,
+        durationDays
+      );
+
+      // Sign with the private key wallet
+      const signature = await wallet.signTypedData(
+        eip712.domain,
+        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
+        eip712.message
+      );
+
+      // Perform user decryption
+      const result = await this.fheInstance.userDecrypt(
+        handleContractPairs,
+        keypair.privateKey,
+        keypair.publicKey,
+        signature.replace('0x', ''),
+        contractAddresses,
+        wallet.address,
+        startTimeStamp,
+        durationDays
+      );
+
+      const balanceWei = result[balanceHandle].toString();
 
       return {
         isPublished: vault.isPublished,
-        transferType: Number(decrypted[handles[0]]),
+        transferType: Number(result[transferTypeHandle]),
         balance: balanceWei,
         balanceEth: formatEther(balanceWei),
-        passwordAddress: passwordWallet.address,
-        depositor: decrypted[handles[2]].toString(),
-        allowAddress: decrypted[handles[3]].toString(),
+        passwordAddress: wallet.address,
+        depositor: result[depositorHandle].toString(),
+        allowAddress: result[allowAddressHandle].toString(),
       };
     } catch (error) {
       throw new Error(`Failed to get vault info: ${(error as Error).message}`);
@@ -369,7 +411,7 @@ export class PrivateTransferSDK {
       const fee = Number(feeValue);
 
       // Get all tasks
-      const tasksData = await this.contract.getPasswords();
+      const tasksData = await this.contract.getTasks();
 
       return tasksData.map((task: any) => {
         const amount = BigInt(task.amount);
@@ -515,10 +557,9 @@ export class PrivateTransferSDK {
    */
   private formatEther(wei: string): string {
     try {
-      const value = (BigInt(wei) * BigInt(100)) / BigInt(1e18);
-      return (Number(value) / 100).toFixed(4);
+      return formatEther(wei);
     } catch {
-      return '0.0000';
+      return '0';
     }
   }
 

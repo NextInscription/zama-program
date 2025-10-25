@@ -1,13 +1,20 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useWallet } from '../stores/wallet'
-import { BrowserProvider, Contract, Wallet, keccak256, hexlify } from 'ethers'
+import { BrowserProvider, Contract, formatEther as ethersFormatEther, hexlify } from 'ethers'
 import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/web'
 import { CONTRACT_ADDRESS } from '../config/web3modal'
 import contractABI from '../constant/abi.json'
 
-// Initialize FHE instance
-const fheInstance = await createInstance(SepoliaConfig)
+let fheInstance: any = null
+
+// Initialize FHE instance on demand
+async function getFheInstance() {
+  if (!fheInstance) {
+    fheInstance = await createInstance(SepoliaConfig)
+  }
+  return fheInstance
+}
 
 interface Task {
   password: bigint
@@ -16,32 +23,49 @@ interface Task {
   totalReward: string
 }
 
-const { address, chainId, isConnected, walletProvider } = useWallet()
+const { address, isConnected, walletProvider } = useWallet()
 const tasks = ref<Task[]>([])
 const fee = ref<number>(0)
 const loading = ref(false)
 const loadingTask = ref(false)
 const selectedTask = ref<Task | null>(null)
-const password = ref('')
 const message = ref('')
 const messageType = ref<'success' | 'error' | ''>('')
 
 const isWalletConnected = computed(() => isConnected.value)
 
+let refreshInterval: NodeJS.Timeout | null = null
+
 onMounted(() => {
   if (isConnected.value) {
     loadTasks()
+    // Auto-refresh every 10 seconds
+    refreshInterval = setInterval(() => {
+      if (isConnected.value) {
+        loadTasks()
+      }
+    }, 10000)
+  }
+})
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
   }
 })
 
 async function loadTasks() {
   if (!walletProvider.value || !isConnected.value) {
-    showMessage('Please connect your wallet first', 'error')
     return
   }
 
   try {
-    loading.value = true
+    // Don't show loading spinner during auto-refresh to avoid UI jump
+    const isManualRefresh = loading.value === false && tasks.value.length > 0
+    if (!isManualRefresh) {
+      loading.value = true
+    }
+    message.value = ''
 
     // Get provider and contract
     const provider = new BrowserProvider(walletProvider.value)
@@ -49,28 +73,58 @@ async function loadTasks() {
     const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
 
     // Get fee from contract
-    const feeValue = await contract.fee()
-    fee.value = Number(feeValue)
+    try {
+      const feeValue = await contract.fee()
+      fee.value = Number(feeValue)
+    } catch (feeError) {
+      console.error('Failed to get fee:', feeError)
+      if (fee.value === 0) {
+        fee.value = 50 // Default 5% only if not set
+      }
+    }
 
     // Get all tasks
-    const tasksData = await contract.getPasswords()
+    try {
+      const tasksData = await contract.getTasks()
+      console.log('Tasks data:', tasksData)
 
-    tasks.value = tasksData.map((task: any) => {
-      const amount = BigInt(task.amount)
-      const commission = (amount * BigInt(fee.value)) / BigInt(1000)
-      const totalReward = commission
+      // Process tasks data
+      const newTasks = tasksData && tasksData.length > 0
+        ? tasksData.map((task: any) => {
+            const amount = BigInt(task.amount)
+            const commission = (amount * BigInt(fee.value)) / BigInt(1000)
+            const totalReward = commission
 
-      return {
-        password: BigInt(task.password),
-        amount: amount,
-        commission: formatEther(commission.toString()),
-        totalReward: formatEther(totalReward.toString())
+            return {
+              password: BigInt(task.password),
+              amount: amount,
+              commission: formatEther(commission.toString()),
+              totalReward: formatEther(totalReward.toString())
+            }
+          })
+        : []
+
+      // Only update tasks if data changed
+      tasks.value = newTasks
+
+    } catch (tasksError: any) {
+      console.error('Failed to get tasks:', tasksError)
+      // Only clear tasks on first load, not during refresh
+      if (tasks.value.length === 0) {
+        tasks.value = []
       }
-    })
+      // Don't show error message if contract call fails, just show empty state
+      if (tasksError.code !== 'CALL_EXCEPTION' && tasks.value.length === 0) {
+        showMessage('Unable to load tasks. Please check contract deployment.', 'error')
+      }
+    }
 
   } catch (error: any) {
     console.error('Load tasks error:', error)
-    showMessage(error.message || 'Failed to load tasks', 'error')
+    // Only clear tasks on first load, not during refresh
+    if (tasks.value.length === 0) {
+      tasks.value = []
+    }
   } finally {
     loading.value = false
   }
@@ -79,11 +133,6 @@ async function loadTasks() {
 async function handleEntrustWithdraw(task: Task) {
   if (!walletProvider.value || !isConnected.value) {
     showMessage('Please connect your wallet first', 'error')
-    return
-  }
-
-  if (!password.value) {
-    showMessage('Please enter the password for this task', 'error')
     return
   }
 
@@ -96,28 +145,22 @@ async function handleEntrustWithdraw(task: Task) {
     const signer = await provider.getSigner()
     const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
 
-    // Generate password wallet from password
-    const passwordWallet = new Wallet(keccak256(Buffer.from(password.value)))
-    const passwordUint256 = BigInt(passwordWallet.privateKey)
-
-    // Verify password matches the task
-    if (passwordUint256 !== task.password) {
-      showMessage('Password does not match this task', 'error')
-      return
-    }
+    // Use the password from the task
+    const passwordUint256 = task.password
 
     // Encrypt password
-    const encryptedInput = await fheInstance
+    const fhe = await getFheInstance()
+    const encryptedInput = await fhe
       .createEncryptedInput(CONTRACT_ADDRESS, address.value!)
       .add256(passwordUint256)
       .encrypt()
 
-    const handles = encryptedInput.handles.map(h => hexlify(h))
+    const handle = hexlify(encryptedInput.handles[0])
     const inputProof = hexlify(encryptedInput.inputProof)
 
     // Call entrustWithdraw function
     const tx = await contract.entrustWithdraw(
-      handles[0],
+      handle,
       inputProof
     )
 
@@ -128,7 +171,6 @@ async function handleEntrustWithdraw(task: Task) {
     showMessage(`Entrust withdrawal successful! You earned ${task.commission} ETH commission`, 'success')
 
     // Reload tasks
-    password.value = ''
     selectedTask.value = null
     await loadTasks()
 
@@ -153,22 +195,19 @@ function showMessage(msg: string, type: 'success' | 'error') {
 
 function formatEther(wei: string): string {
   try {
-    const value = BigInt(wei) * BigInt(100) / BigInt(1e18)
-    return (Number(value) / 100).toFixed(4)
+    return ethersFormatEther(wei)
   } catch {
-    return '0.0000'
+    return '0'
   }
 }
 
 function selectTask(task: Task) {
   selectedTask.value = task
-  password.value = ''
   message.value = ''
 }
 
 function closeTaskModal() {
   selectedTask.value = null
-  password.value = ''
   message.value = ''
 }
 </script>
@@ -180,6 +219,9 @@ function closeTaskModal() {
         <div>
           <h2>Bounty List</h2>
           <p class="text-secondary">Complete entrusted withdrawals and earn commissions</p>
+          <p class="hint-text">
+            Note: New tasks may take a few moments to appear due to FHE decryption processing. Auto-refreshing every 10s.
+          </p>
         </div>
         <button class="secondary-button" :disabled="loading" @click="loadTasks">
           {{ loading ? 'Loading...' : 'Refresh' }}
@@ -206,12 +248,7 @@ function closeTaskModal() {
         </div>
 
         <div class="tasks-list">
-          <div
-            v-for="(task, index) in tasks"
-            :key="index"
-            class="task-card"
-            @click="selectTask(task)"
-          >
+          <div v-for="(task, index) in tasks" :key="index" class="task-card" @click="selectTask(task)">
             <div class="task-header">
               <h3>Task #{{ index + 1 }}</h3>
               <span class="task-badge">Available</span>
@@ -260,17 +297,13 @@ function closeTaskModal() {
             </div>
           </div>
 
-          <div class="form-group">
-            <label for="taskPassword">Password</label>
-            <input
-              id="taskPassword"
-              v-model="password"
-              type="password"
-              placeholder="Enter the deposit password"
-              :disabled="loadingTask"
-            />
-            <p class="hint">
-              Enter the password used when creating this deposit
+          <div class="info-box">
+            <p>
+              By completing this task, you will help process a withdrawal and earn
+              <strong class="text-success">{{ selectedTask.commission }} ETH</strong> as commission.
+            </p>
+            <p class="warning-text">
+              Note: This action will execute the entrusted withdrawal for the depositor and transfer funds to the designated recipient.
             </p>
           </div>
 
@@ -282,12 +315,9 @@ function closeTaskModal() {
             <button class="secondary-button" @click="closeTaskModal">
               Cancel
             </button>
-            <button
-              class="submit-button"
-              :disabled="loadingTask || !password"
-              @click="handleEntrustWithdraw(selectedTask)"
-            >
-              {{ loadingTask ? 'Processing...' : 'Complete Task' }}
+            <button class="submit-button" :disabled="loadingTask"
+              @click="handleEntrustWithdraw(selectedTask)">
+              {{ loadingTask ? 'Processing...' : 'Complete Task & Earn Commission' }}
             </button>
           </div>
         </div>
@@ -308,6 +338,13 @@ function closeTaskModal() {
   align-items: flex-start;
   gap: 2rem;
   margin-bottom: 2rem;
+}
+
+.hint-text {
+  margin-top: 0.5rem;
+  font-size: 0.85em;
+  color: var(--warning-color);
+  font-style: italic;
 }
 
 .secondary-button {
@@ -537,21 +574,31 @@ function closeTaskModal() {
   font-weight: 600;
 }
 
-.form-group {
-  margin-bottom: 1.5rem;
+.info-box {
+  padding: 1.5rem;
+  background-color: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin: 1.5rem 0;
 }
 
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-  color: var(--text-primary);
+.info-box p {
+  margin: 0.75rem 0;
+  line-height: 1.6;
 }
 
-.hint {
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
+.info-box p:first-child {
+  margin-top: 0;
+}
+
+.info-box p:last-child {
+  margin-bottom: 0;
+}
+
+.warning-text {
+  font-size: 0.9em;
+  color: var(--warning-color);
+  font-style: italic;
 }
 
 .modal-actions {

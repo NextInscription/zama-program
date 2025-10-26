@@ -42,7 +42,7 @@ async function loadVaultInfo() {
 
     // 获取 SDK 实例（Pinia store 确保已初始化）
     const sdk = await sdkStore.getSDK()
-
+    console.log(privateKey.value)
     // Get vault info using SDK
     const vault = await sdk.getVaultInfo(privateKey.value)
 
@@ -77,40 +77,41 @@ async function handleWithdraw() {
     showMessage('Please enter a valid withdrawal amount', 'error')
     return
   }
+  loading.value = true
+  message.value = ''
+  setTimeout(async () => {
+    try {
 
-  try {
-    loading.value = true
-    message.value = ''
+      // 获取 SDK 实例（Pinia store 确保已初始化）
+      const sdk = await sdkStore.getSDK()
 
-    // 获取 SDK 实例（Pinia store 确保已初始化）
-    const sdk = await sdkStore.getSDK()
+      showMessage('Submitting withdrawal transaction...', 'success')
+      console.log(withdrawAmount.value)
+      // Use SDK to withdraw
+      const result = await sdk.withdraw({
+        privateKey: privateKey.value,
+        amount: withdrawAmount.value + '',
+      })
 
-    showMessage('Submitting withdrawal transaction...', 'success')
+      showMessage(
+        `Withdrawal successful! ${result.amount} ETH withdrawn. Transaction: ${result.transactionHash.substring(0, 10)}...`,
+        'success'
+      )
 
-    // Use SDK to withdraw
-    const result = await sdk.withdraw({
-      privateKey: privateKey.value,
-      amount: withdrawAmount.value,
-    })
+      console.log('Withdrawal result:', result)
 
-    showMessage(
-      `Withdrawal successful! ${result.amount} ETH withdrawn. Transaction: ${result.transactionHash.substring(0, 10)}...`,
-      'success'
-    )
+      // Reset form
+      withdrawAmount.value = ''
+      vaultInfo.value = null
+      privateKey.value = ''
 
-    console.log('Withdrawal result:', result)
-
-    // Reset form
-    withdrawAmount.value = ''
-    vaultInfo.value = null
-    privateKey.value = ''
-
-  } catch (error: any) {
-    console.error('Withdrawal error:', error)
-    showMessage(error.message || 'Withdrawal failed', 'error')
-  } finally {
-    loading.value = false
-  }
+    } catch (error: any) {
+      console.error('Withdrawal error:', error)
+      showMessage(error.message || 'Withdrawal failed', 'error')
+    } finally {
+      loading.value = false
+    }
+  }, 20);
 }
 
 async function handleRefund() {
@@ -214,7 +215,7 @@ function getTransferTypeName(type: number): string {
           {{ loadingVault ? 'Loading...' : 'Load Vault Information' }}
         </button>
 
-        <div v-if="hasVaultInfo" class="vault-info">
+        <div v-if="hasVaultInfo && vaultInfo" class="vault-info">
           <h3>Vault Information</h3>
           <div class="info-grid">
             <div class="info-item">

@@ -20,8 +20,8 @@ export enum TransferType {
  * SDK configuration options
  */
 export interface SDKConfig {
-  /** Contract address on Sepolia */
-  contractAddress: string;
+  /** Contract address on Sepolia (default: 0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D) */
+  contractAddress?: string;
   /** RPC URL (default: https://1rpc.io/sepolia) */
   rpcUrl?: string;
   /** Provider instance (if already initialized) */

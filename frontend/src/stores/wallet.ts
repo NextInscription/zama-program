@@ -1,8 +1,6 @@
 import { computed } from 'vue'
 import { BrowserProvider, Contract } from 'ethers'
 import { useWeb3ModalProvider, useWeb3ModalAccount } from '@web3modal/ethers/vue'
-import contractABI from '../constant/abi.json'
-import { CONTRACT_ADDRESS } from '../config/web3modal'
 
 export function useWallet() {
   const { walletProvider } = useWeb3ModalProvider()

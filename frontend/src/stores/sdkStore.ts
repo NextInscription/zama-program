@@ -9,7 +9,7 @@ import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
 import { PrivateTransferSDK } from '@zama-private-transfer/sdk'
 import { useWeb3ModalProvider, useWeb3ModalAccount } from '@web3modal/ethers/vue'
-
+import { initSDK, SepoliaConfig, createInstance } from '@zama-fhe/relayer-sdk/web'
 export const useSDKStore = defineStore('sdk', () => {
   // State
   const sdkInstance = ref<PrivateTransferSDK | null>(null)
@@ -23,31 +23,6 @@ export const useSDKStore = defineStore('sdk', () => {
   const { isConnected } = useWeb3ModalAccount()
 
   /**
-   * 初始化 WASM 模块（只需要初始化一次）
-   */
-  async function initializeWasm() {
-    if (wasmInitialized.value) {
-      return
-    }
-
-    try {
-      console.log('[SDK Store] 🔄 正在初始化 WASM 模块...')
-
-      // 使用 SDK 的静态方法初始化 WASM
-      await PrivateTransferSDK.initializeWasm({
-        tfheParams: '/wasm/tfhe_bg.wasm',
-        kmsParams: '/wasm/kms_lib_bg.wasm',
-      })
-
-      wasmInitialized.value = true
-      console.log('[SDK Store] ✅ WASM 模块初始化成功')
-    } catch (error: any) {
-      console.error('[SDK Store] ❌ WASM 初始化失败:', error)
-      throw new Error(`WASM 初始化失败: ${error.message}`)
-    }
-  }
-
-  /**
    * 初始化 SDK
    */
   async function initialize() {
@@ -59,22 +34,21 @@ export const useSDKStore = defineStore('sdk', () => {
     try {
       isInitializing.value = true
       initError.value = null
-
-      // 1. 确保 WASM 已初始化
-      await initializeWasm()
-
-      console.log('[SDK Store] 🔄 正在初始化 SDK 实例...')
-
+      if (import.meta.env.DEV) {
+        await initSDK({
+          tfheParams: 'https://cdn.zama.ai/relayer-sdk-js/0.2.0/tfhe_bg.wasm',
+          kmsParams: 'https://cdn.zama.ai/relayer-sdk-js/0.2.0/kms_lib_bg.wasm',
+        })
+      } else {
+        await initSDK()
+      }
+      const instance = await createInstance(SepoliaConfig);
       // 2. 创建 SDK 实例（使用默认配置）
-      const sdk = new PrivateTransferSDK({})
-
+      const sdk = new PrivateTransferSDK()
       // 3. 初始化 SDK（使用钱包 provider 或不使用）
       if (walletProvider.value && isConnected.value) {
-        await sdk.initialize(walletProvider.value)
+        await sdk.initialize(instance, walletProvider.value)
         console.log('[SDK Store] ✅ SDK 已使用钱包初始化')
-      } else {
-        await sdk.initialize()
-        console.log('[SDK Store] ✅ SDK 已初始化（只读模式）')
       }
 
       sdkInstance.value = sdk
@@ -108,15 +82,25 @@ export const useSDKStore = defineStore('sdk', () => {
    * 获取 SDK 实例（如果未初始化则自动初始化）
    */
   async function getSDK(): Promise<PrivateTransferSDK> {
+    // If SDK not initialized, initialize it
     if (!sdkInstance.value || !isInitialized.value) {
       await initialize()
     }
 
-    if (!sdkInstance.value) {
-      throw new Error('SDK 初始化失败')
+    // If wallet is connected but SDK was initialized without wallet, reinitialize
+    if (sdkInstance.value && isConnected.value && walletProvider.value) {
+      const signerAddress = await sdkInstance.value.getSignerAddress()
+      if (!signerAddress) {
+        console.log('[SDK Store] SDK initialized without wallet, reinitializing...')
+        await reinitialize()
+      }
     }
 
-    return sdkInstance.value
+    if (!sdkInstance.value) {
+      throw new Error('SDK initialization failed')
+    }
+
+    return sdkInstance.value as PrivateTransferSDK
   }
 
   /**
@@ -174,7 +158,6 @@ export const useSDKStore = defineStore('sdk', () => {
 
     // Actions
     initialize,
-    initializeWasm,
     reinitialize,
     getSDK,
     setCallbacks,

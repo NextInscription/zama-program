@@ -34,6 +34,3 @@ export {
   SEPOLIA_FHE_CONFIG,
   CONTRACT_ABI,
 } from './constants';
-
-// Vite plugin for copying WASM files
-export { copyWasmPlugin } from './vite-plugin';

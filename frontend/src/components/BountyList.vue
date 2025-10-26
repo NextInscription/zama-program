@@ -102,39 +102,40 @@ async function handleEntrustWithdraw(task: BountyTask) {
     showMessage('Please connect your wallet first', 'error')
     return
   }
+  loadingTask.value = true
+  message.value = ''
+  setTimeout(async () => {
+    try {
 
-  try {
-    loadingTask.value = true
-    message.value = ''
+      // 获取 SDK 实例（Pinia store 确保已初始化）
+      const sdk = await sdkStore.getSDK()
 
-    // 获取 SDK 实例（Pinia store 确保已初始化）
-    const sdk = await sdkStore.getSDK()
+      showMessage('Submitting entrust withdrawal transaction...', 'success')
 
-    showMessage('Submitting entrust withdrawal transaction...', 'success')
+      // Use SDK to complete the task
+      const result = await sdk.completeTask({
+        task: task,
+        password: task.password,
+      })
 
-    // Use SDK to complete the task
-    const result = await sdk.completeTask({
-      task: task,
-      password: task.password,
-    })
+      showMessage(
+        `Task completed successfully! You earned ${result.commission} ETH commission. Transaction: ${result.transactionHash.substring(0, 10)}...`,
+        'success'
+      )
 
-    showMessage(
-      `Task completed successfully! You earned ${result.commission} ETH commission. Transaction: ${result.transactionHash.substring(0, 10)}...`,
-      'success'
-    )
+      console.log('Task completion result:', result)
 
-    console.log('Task completion result:', result)
+      // Reload tasks
+      selectedTask.value = null
+      await loadTasks()
 
-    // Reload tasks
-    selectedTask.value = null
-    await loadTasks()
-
-  } catch (error: any) {
-    console.error('Entrust withdraw error:', error)
-    showMessage(error.message || 'Entrust withdrawal failed', 'error')
-  } finally {
-    loadingTask.value = false
-  }
+    } catch (error: any) {
+      console.error('Entrust withdraw error:', error)
+      showMessage(error.message || 'Entrust withdrawal failed', 'error')
+    } finally {
+      loadingTask.value = false
+    }
+  }, 20);
 }
 
 function showMessage(msg: string, type: 'success' | 'error') {
@@ -175,7 +176,8 @@ function closeTaskModal() {
           <h2>Bounty List</h2>
           <p class="text-secondary">Complete entrusted withdrawals and earn commissions</p>
           <p class="hint-text">
-            Note: New tasks may take a few moments to appear due to FHE decryption processing. Auto-refreshing every 10s.
+            Note: New tasks may take a few moments to appear due to FHE decryption processing. Auto-refreshing every
+            10s.
           </p>
         </div>
         <button class="secondary-button" :disabled="loading" @click="loadTasks">
@@ -258,7 +260,8 @@ function closeTaskModal() {
               <strong class="text-success">{{ selectedTask.commission }} ETH</strong> as commission.
             </p>
             <p class="warning-text">
-              Note: This action will execute the entrusted withdrawal for the depositor and transfer funds to the designated recipient.
+              Note: This action will execute the entrusted withdrawal for the depositor and transfer funds to the
+              designated recipient.
             </p>
           </div>
 
@@ -270,8 +273,7 @@ function closeTaskModal() {
             <button class="secondary-button" @click="closeTaskModal">
               Cancel
             </button>
-            <button class="submit-button" :disabled="loadingTask"
-              @click="handleEntrustWithdraw(selectedTask)">
+            <button class="submit-button" :disabled="loadingTask" @click="handleEntrustWithdraw(selectedTask)">
               {{ loadingTask ? 'Processing...' : 'Complete Task & Earn Commission' }}
             </button>
           </div>

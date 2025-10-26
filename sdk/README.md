@@ -1,426 +1,329 @@
 # Zama Private Transfer SDK
 
-A TypeScript SDK for interacting with the Zama Private Transfer smart contract on Sepolia testnet. This SDK enables privacy-preserving transfers using Fully Homomorphic Encryption (FHE) technology.
-
-## Features
-
-- 🔐 **Private Deposits**: Three types of deposit methods
-  - Type 1: Specified recipient only
-  - Type 2: Anyone with password
-  - Type 3: Entrusted withdrawal (with bounty)
-- 💸 **Withdrawals**: Secure withdrawal with password verification
-- 🎯 **Bounty Tasks**: Complete entrusted withdrawals and earn commissions
-- 💰 **Refunds**: Depositors can refund their deposits
-- 🔒 **FHE Encryption**: All sensitive data encrypted using Zama's FHE technology
+A TypeScript SDK for Zama Private Transfer smart contract on Sepolia testnet with FHE encryption.
 
 ## Installation
 
 ```bash
-npm install @zama-private-transfer/sdk
-# or
-yarn add @zama-private-transfer/sdk
+npm install zama-private-transfer
+```
+
+```bash
+# 2. Install dependencies
+npm install
+
+# 3. Build SDK
+cd sdk && npm run build
+```
+
+## WASM Setup
+
+The SDK automatically handles WASM loading using smart path resolution:
+
+1. **Package-relative** (automatic with Vite/Rollup)
+2. **Explicit URLs** (if provided)
+3. **Public folder** (`/wasm` in dev, `/assets` in prod)
+
+### Option 1: Automatic (Recommended)
+
+No configuration needed! The SDK uses `new URL()` to resolve WASM files automatically.
+
+```typescript
+import { initSDK, createInstance, SepoliaConfig} from '@zama-fhe/relayer-sdk/web'
+await initSDK()
+const instance = await createInstance(SepoliaConfig);
+const sdk = new PrivateTransferSDK()
+await sdk.initialize(instance, window.ethereum)
+// WASM files loaded automatically
+```
+
+### Option 2: Vite Plugin (For public folder copy)
+
+```typescript
+// vite.config.ts
+import { copyWasmPlugin } from 'zama-private-transfer/plugin'
+
+export default defineConfig({
+  plugins: [copyWasmPlugin()]
+})
 ```
 
 ## Quick Start
 
-### 1. Initialize the SDK
-
 ```typescript
-import { PrivateTransferSDK, TransferType } from '@zama-private-transfer/sdk';
+import { PrivateTransferSDK, TransferType } from 'zama-private-transfer'
+import { initSDK, createInstance, SepoliaConfig} from '@zama-fhe/relayer-sdk/web'
+await initSDK()
+const instance = await createInstance(SepoliaConfig);
+const sdk = new PrivateTransferSDK()
+await sdk.initialize(instance, window.ethereum)
 
-// Create SDK instance
-const sdk = new PrivateTransferSDK({
-  contractAddress: '0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D', // Default Sepolia address
-  rpcUrl: 'https://1rpc.io/sepolia', // Optional, defaults to this
-});
+// 2. Set callbacks (optional)
+sdk.setCallbacks({
+  onTransactionSubmitted: (hash) => console.log('Submitted:', hash),
+  onTransactionConfirmed: (receipt) => console.log('Confirmed:', receipt),
+  onError: (error) => console.error('Error:', error)
+})
 
-// Initialize with browser wallet provider (e.g., MetaMask)
-await sdk.initialize(window.ethereum);
-```
-
-### 2. Make a Deposit
-
-#### Type 1: Specified Recipient
-
-```typescript
-const result = await sdk.deposit({
-  transferType: TransferType.SPECIFIED_RECIPIENT,
-  amount: '0.1', // ETH
-  recipientAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb', // Required
-});
-
-console.log('Transaction Hash:', result.transactionHash);
-console.log('Password (uint256):', result.password.toString());
-console.log('Password Private Key:', result.privateKey);
-console.log('Password Address:', result.passwordAddress);
-console.log('Recipient Address:', result.recipientAddress);
-
-// IMPORTANT: Save the private key! You need it to withdraw.
-```
-
-#### Type 2: Anyone with Password
-
-```typescript
+// 3. Deposit
 const result = await sdk.deposit({
   transferType: TransferType.ANYONE_WITH_PASSWORD,
-  amount: '0.05', // ETH
-  // No recipient address needed - anyone with password can withdraw
-});
+  amount: '0.1'
+})
+console.log('Private Key:', result.privateKey) // ⚠️ Must save!
 
-// Save the password private key
-console.log('Password (uint256):', result.password.toString());
-console.log('Password Key:', result.privateKey);
-console.log('Recipient Address:', result.recipientAddress); // Will be blackhole address (0x000...)
+// 4. Get vault info
+const vault = await sdk.getVaultInfo(result.privateKey)
+console.log('Balance:', vault.balanceEth, 'ETH')
+
+// 5. Withdraw
+await sdk.withdraw({
+  privateKey: result.privateKey,
+  amount: '0.05'
+})
 ```
 
-#### Type 3: Entrusted Withdrawal (Creates a Bounty)
+## Core API
+
+### 1. `initialize(provider)` - Initialize SDK
+
+```typescript
+import { initSDK, createInstance, SepoliaConfig} from '@zama-fhe/relayer-sdk/web'
+await initSDK()
+const instance = await createInstance(SepoliaConfig);
+const sdk = new PrivateTransferSDK()
+await sdk.initialize(instance, window.ethereum)
+
+// Or specify custom contract
+const sdk = new PrivateTransferSDK({
+  rpcUrl: 'https://...'
+})
+await sdk.initialize(window.ethereum)
+```
+
+### 2. `deposit(params)` - Make Deposit
+
+**Uses private key (auto-generated)**
 
 ```typescript
 const result = await sdk.deposit({
-  transferType: TransferType.ENTRUSTED_WITHDRAWAL,
-  amount: '0.2', // ETH
-  recipientAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb', // Required
-});
+  transferType: TransferType.SPECIFIED_RECIPIENT,  // 1: Specified recipient only
+  // transferType: TransferType.ANYONE_WITH_PASSWORD,  // 2: Anyone with password
+  // transferType: TransferType.ENTRUSTED_WITHDRAWAL,  // 3: Bounty task
+  amount: '0.1',
+  recipientAddress: '0x...'  // Required for Type 1 & 3
+})
 
-// This creates a bounty task that trustees can complete for commission
-console.log('Password (uint256):', result.password.toString());
-console.log('Task created with password:', result.privateKey);
-console.log('Recipient Address:', result.recipientAddress);
+// Returns
+result.privateKey        // Private key (Must save!)
+result.password          // uint256 password
+result.passwordAddress   // Password address
+result.transactionHash   // Transaction hash
 ```
 
-### 3. Check Vault Information
+### 3. `withdraw(params)` - Withdraw Funds
+
+**Uses private key**
 
 ```typescript
-const vaultInfo = await sdk.getVaultInfo('your-password-here');
-
-console.log('Transfer Type:', vaultInfo.transferType);
-console.log('Balance:', vaultInfo.balanceEth, 'ETH');
-console.log('Depositor:', vaultInfo.depositor);
-console.log('Recipient:', vaultInfo.allowAddress);
+// Use the privateKey returned from deposit()
+await sdk.withdraw({
+  privateKey: result.privateKey,  // From deposit result
+  amount: '0.05'
+})
 ```
 
-### 4. Withdraw Funds
+### 4. `getVaultInfo(privateKey)` - Get Vault Info
+
+**Uses private key**
 
 ```typescript
-const result = await sdk.withdraw({
-  password: 'your-password-here',
-  amount: '0.05', // ETH to withdraw
-});
+// Use the privateKey returned from deposit()
+const vault = await sdk.getVaultInfo(result.privateKey)
 
-console.log('Withdrawal successful:', result.transactionHash);
-console.log('Amount withdrawn:', result.amount, 'ETH');
+// Returns
+vault.transferType    // Transfer type: 1/2/3
+vault.balance         // Balance in wei
+vault.balanceEth      // Balance in ETH
+vault.depositor       // Depositor address
+vault.allowAddress    // Allowed address
 ```
 
-### 5. Get Bounty Tasks
+### 5. `getBountyTasks()` - Get Bounty Task List
 
 ```typescript
-const tasks = await sdk.getBountyTasks();
+const tasks = await sdk.getBountyTasks()
 
-tasks.forEach((task, index) => {
-  console.log(`Task ${index + 1}:`);
-  console.log('  Amount:', task.totalReward, 'ETH');
-  console.log('  Commission:', task.commission, 'ETH');
-});
+tasks.forEach(task => {
+  console.log('Password:', task.password)      // uint256
+  console.log('Amount:', task.amount)          // bigint
+  console.log('Commission:', task.commission)  // ETH string
+})
 ```
 
-### 6. Complete a Bounty Task
+### 6. `completeTask(params)` - Complete Bounty Task
+
+**⚠️ IMPORTANT: Uses uint256 password, NOT private key!**
 
 ```typescript
-const tasks = await sdk.getBountyTasks();
-const task = tasks[0]; // Select first task
+const tasks = await sdk.getBountyTasks()
+const task = tasks[0]
 
-const result = await sdk.completeTask({
+await sdk.completeTask({
   task: task,
-  password: 'task-password', // Password provided by task creator
-});
-
-console.log('Task completed!');
-console.log('Commission earned:', result.commission, 'ETH');
+  password: task.password  // ⚠️ uint256 password (bigint)
+})
 ```
 
-### 7. Refund a Deposit
+### 7. `refund(params)` - Refund Deposit
+
+**Uses private key**
 
 ```typescript
-const result = await sdk.refund({
-  password: 'your-deposit-password',
-});
-
-console.log('Refund successful:', result.transactionHash);
-console.log('Amount refunded:', result.amount, 'ETH');
+// Use the privateKey returned from deposit()
+await sdk.refund({
+  privateKey: result.privateKey  // From deposit result
+})
 ```
 
-## Event Callbacks
-
-You can set callbacks to track transaction progress:
+### 8. `setCallbacks(callbacks)` - Set Event Callbacks
 
 ```typescript
 sdk.setCallbacks({
-  onTransactionSubmitted: (txHash) => {
-    console.log('Transaction submitted:', txHash);
+  onTransactionSubmitted: (txHash: string) => {
+    console.log('Transaction submitted:', txHash)
   },
-  onTransactionConfirmed: (receipt) => {
-    console.log('Transaction confirmed:', receipt);
+  onTransactionConfirmed: (receipt: any) => {
+    console.log('Transaction confirmed:', receipt)
   },
-  onError: (error) => {
-    console.error('Error:', error.message);
-  },
-});
+  onError: (error: Error) => {
+    console.error('Error occurred:', error)
+  }
+})
 ```
 
-## API Reference
+## Parameter Type Reference
 
-### `PrivateTransferSDK`
+| Method | Password Parameter Type |
+|--------|------------------------|
+| `deposit` | ✅ Auto-generated private key |
+| `withdraw` | ✅ Private key (string) |
+| `getVaultInfo` | ✅ Private key (string) |
+| `refund` | ✅ Private key (string) |
+| `completeTask` | ⚠️ uint256 password (bigint) |
+| `getBountyTasks` | N/A |
 
-#### Constructor
+## Complete Example
+
+### Vue 3 + Pinia
 
 ```typescript
-constructor(config: SDKConfig)
+// stores/sdkStore.ts
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import { PrivateTransferSDK } from 'zama-private-transfer'
+import { initSDK, createInstance, SepoliaConfig} from '@zama-fhe/relayer-sdk/web'
+export const useSDKStore = defineStore('sdk', () => {
+  const sdkInstance = ref<PrivateTransferSDK | null>(null)
+  const isInitialized = ref(false)
+
+  async function initialize(provider: any) {
+    if (isInitialized.value) return
+    await initSDK()
+    const instance = await createInstance(SepoliaConfig);
+    const sdk = new PrivateTransferSDK()
+    await sdk.initialize(instance, window.ethereum)
+    sdkInstance.value = sdk
+    isInitialized.value = true
+  }
+
+  async function getSDK() {
+    if (!sdkInstance.value) throw new Error('SDK not initialized')
+    return sdkInstance.value
+  }
+
+  return { initialize, getSDK, isInitialized }
+})
 ```
-
-- `config.contractAddress`: Contract address (default: Sepolia deployment)
-- `config.rpcUrl`: RPC URL (default: https://1rpc.io/sepolia)
-- `config.provider`: Optional pre-configured provider
-- `config.signer`: Optional pre-configured signer
-
-#### Methods
-
-##### `initialize(provider?: any): Promise<void>`
-
-Initialize the SDK with a wallet provider (e.g., MetaMask's window.ethereum).
-
-##### `deposit(params: DepositParams): Promise<DepositResult>`
-
-Make a deposit.
-
-##### `getVaultInfo(password: string): Promise<VaultInfo>`
-
-Get vault information by password.
-
-##### `withdraw(params: WithdrawParams): Promise<WithdrawResult>`
-
-Withdraw funds from vault.
-
-##### `getBountyTasks(): Promise<BountyTask[]>`
-
-Get all available bounty tasks.
-
-##### `completeTask(params: CompleteTaskParams): Promise<CompleteTaskResult>`
-
-Complete a bounty task.
-
-##### `refund(params: RefundParams): Promise<RefundResult>`
-
-Refund a deposit.
-
-##### `getFeeRate(): Promise<number>`
-
-Get current commission fee rate.
-
-##### `generatePasswordWallet(): GeneratedWallet`
-
-Generate a random password wallet.
-
-##### `getContractAddress(): string`
-
-Get the contract address.
-
-##### `getSignerAddress(): Promise<string | null>`
-
-Get the current signer address.
-
-## Types
-
-### `TransferType`
-
-```typescript
-enum TransferType {
-  SPECIFIED_RECIPIENT = 1,    // Only specified recipient can withdraw
-  ANYONE_WITH_PASSWORD = 2,   // Anyone with password can withdraw
-  ENTRUSTED_WITHDRAWAL = 3,   // Trustee withdraws for recipient
-}
-```
-
-### `DepositParams`
-
-```typescript
-interface DepositParams {
-  transferType: TransferType;
-  amount: string;              // Amount in ETH
-  recipientAddress?: string;   // Required for types 1 and 3
-}
-```
-
-### `DepositResult`
-
-```typescript
-interface DepositResult {
-  transactionHash: string;
-  password: bigint;            // Password as uint256
-  privateKey: string;          // Password private key
-  passwordAddress: string;     // Password wallet address
-  recipientAddress: string;    // Target recipient address
-  blockNumber?: number;
-}
-```
-
-### `GeneratedWallet`
-
-```typescript
-interface GeneratedWallet {
-  privateKey: string;  // MUST be saved by user
-  address: string;
-  wallet: HDNodeWallet;
-}
-```
-
-## Examples
-
-### Complete Example with React
-
-```typescript
-import { useState } from 'react';
-import { PrivateTransferSDK, TransferType } from '@zama-private-transfer/sdk';
-
-function App() {
-  const [sdk, setSdk] = useState<PrivateTransferSDK | null>(null);
-  const [passwordKey, setPasswordKey] = useState('');
-
-  // Initialize SDK
-  const connectWallet = async () => {
-    const newSdk = new PrivateTransferSDK({
-      contractAddress: '0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D',
-    });
-
-    await newSdk.initialize(window.ethereum);
-    setSdk(newSdk);
-  };
-
-  // Make deposit
-  const makeDeposit = async () => {
-    if (!sdk) return;
-
-    const result = await sdk.deposit({
-      transferType: TransferType.ANYONE_WITH_PASSWORD,
-      amount: '0.01',
-    });
-
-    // IMPORTANT: Save this key!
-    setPasswordKey(result.passwordWallet.privateKey);
-    alert('Deposit successful! Save your password key: ' + result.passwordWallet.privateKey);
-  };
-
-  // Withdraw
-  const withdraw = async () => {
-    if (!sdk || !passwordKey) return;
-
-    const result = await sdk.withdraw({
-      password: passwordKey,
-      amount: '0.01',
-    });
-
-    alert('Withdrawal successful!');
-  };
-
-  return (
-    <div>
-      <button onClick={connectWallet}>Connect Wallet</button>
-      <button onClick={makeDeposit}>Deposit 0.01 ETH</button>
-      <button onClick={withdraw}>Withdraw</button>
-      {passwordKey && <div>Password Key: {passwordKey}</div>}
-    </div>
-  );
-}
-```
-
-### Complete Example with Vue 3
 
 ```vue
+<!-- Component usage -->
 <script setup lang="ts">
-import { ref } from 'vue';
-import { PrivateTransferSDK, TransferType } from '@zama-private-transfer/sdk';
+import { useSDKStore } from '@/stores/sdkStore'
+import { TransferType } from 'zama-private-transfer'
 
-const sdk = ref<PrivateTransferSDK | null>(null);
-const passwordKey = ref('');
+const sdkStore = useSDKStore()
 
-const connectWallet = async () => {
-  const newSdk = new PrivateTransferSDK({
-    contractAddress: '0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D',
-  });
+async function connect() {
+  await sdkStore.initialize(window.ethereum)
+}
 
-  await newSdk.initialize(window.ethereum);
-  sdk.value = newSdk;
-};
-
-const makeDeposit = async () => {
-  if (!sdk.value) return;
-
-  const result = await sdk.value.deposit({
+async function deposit() {
+  const sdk = await sdkStore.getSDK()
+  const result = await sdk.deposit({
     transferType: TransferType.ANYONE_WITH_PASSWORD,
-    amount: '0.01',
-  });
+    amount: '0.1'
+  })
 
-  passwordKey.value = result.passwordWallet.privateKey;
-  alert('Deposit successful!');
-};
+  // ⚠️ Save private key
+  localStorage.setItem('privateKey', result.privateKey)
+  alert('Private Key: ' + result.privateKey)
+}
 
-const withdraw = async () => {
-  if (!sdk.value || !passwordKey.value) return;
+async function withdraw() {
+  const sdk = await sdkStore.getSDK()
+  const privateKey = localStorage.getItem('privateKey')
 
-  await sdk.value.withdraw({
-    password: passwordKey.value,
-    amount: '0.01',
-  });
-
-  alert('Withdrawal successful!');
-};
+  await sdk.withdraw({
+    privateKey: privateKey!,
+    amount: '0.05'
+  })
+}
 </script>
-
-<template>
-  <div>
-    <button @click="connectWallet">Connect Wallet</button>
-    <button @click="makeDeposit">Deposit 0.01 ETH</button>
-    <button @click="withdraw">Withdraw</button>
-    <div v-if="passwordKey">Password Key: {{ passwordKey }}</div>
-  </div>
-</template>
 ```
 
-## Security Considerations
+## FAQ
 
-1. **Save Password Keys**: The generated password private key is the ONLY way to access deposited funds. If lost, funds cannot be recovered.
+### 1. WASM initialization failed?
 
-2. **Never Share Private Keys**: Keep password keys secure and never share them publicly.
+Ensure these files exist in `public/wasm/`:
+- `tfhe_bg.wasm`
+- `kms_lib_bg.wasm`
 
-3. **Testnet Only**: This is currently deployed on Sepolia testnet. Do not use for mainnet without proper auditing.
-
-4. **Password Security**: Use strong, unique passwords when creating deposits with Type 2 (anyone with password).
-
-## Contract Information
-
-- **Network**: Sepolia Testnet
-- **Contract Address**: `0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D`
-- **RPC URL**: `https://1rpc.io/sepolia`
-
-## Development
+### 2. Cannot find SDK in monorepo?
 
 ```bash
-# Install dependencies
+# Run at project root
 npm install
-
-# Build the SDK
-npm run build
-
-# Type check
-npm run typecheck
-
-# Watch mode
-npm run dev
+cd sdk && npm run build
 ```
 
+### 3. completeTask parameter error?
+
+```typescript
+// ❌ Wrong
+await sdk.completeTask({
+  task: task,
+  password: 'private-key-string'  // Wrong!
+})
+
+// ✅ Correct
+await sdk.completeTask({
+  task: task,
+  password: task.password  // Use task.password (bigint)
+})
+```
+
+### 4. What if I lose the private key?
+
+Private key cannot be recovered. Funds will be locked forever. Keep it safe!
+
+## Contract Info
+
+- **Network**: Sepolia Testnet
+- **Contract**: `0x8ea2dDD9DD550d500B4cef4C560fE27cde37508D`
+
+- Website: [Zama](https://zama.zamaprivatetransfer.xyz/)
+- GitHub: [SDK Repo](https://github.com/NextInscription/zama-program)
 ## License
-
 MIT
-
-## Support
-
-For issues and questions, please open an issue on GitHub.

@@ -1,5 +1,5 @@
 {
-  "name": "@zama-private-transfer/sdk",
+  "name": "zama-private-transfer",
   "version": "1.0.0",
   "description": "TypeScript SDK for Zama Private Transfer DApp",
   "main": "./dist/index.js",
@@ -10,15 +10,22 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./plugin": {
+      "types": "./src/vite-plugin.d.ts",
+      "import": "./src/vite-plugin.js",
+      "require": "./src/vite-plugin.js"
     }
   },
   "files": [
-    "dist",
-    "public"
+    "dist/**/*",
+    "README.md",
+    "src/vite-plugin.js",
+    "src/vite-plugin.d.ts"
   ],
   "scripts": {
-    "build": "vite build",
-    "dev": "vite build --watch",
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
     "typecheck": "tsc --noEmit",
     "debug": "npm run build && npx vite --open test-debug.html",
     "debug:lan": "npm run build && npx vite --host 0.0.0.0 --open test-debug.html",
@@ -35,6 +42,14 @@
   ],
   "author": "",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NextInscription/zama-program.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NextInscription/zama-program/issues"
+  },
+  "homepage": "https://github.com/NextInscription/zama-program#readme",
   "dependencies": {
     "@zama-fhe/relayer-sdk": ">=0.2.0",
     "ethers": ">=6.0.0"

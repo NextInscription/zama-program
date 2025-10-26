@@ -5,14 +5,23 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "build": "vite build",
+    "typecheck": "vue-tsc -b",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@esbuild-plugins/node-globals-polyfill": "^0.2.3",
     "@web3modal/ethers": "^5.1.11",
-    "@zama-private-transfer/sdk": "^1.0.0",
+    "@zama-fhe/relayer-sdk": "^0.2.0",
+    "@zama-private-transfer/sdk": "1.0.0",
+    "buffer": "^6.0.3",
     "ethers": "^6.15.0",
+    "events": "^3.3.0",
+    "keccak": "^3.0.4",
+    "path-browserify": "^1.0.1",
     "pinia": "^2.1.7",
+    "stream-browserify": "^3.0.0",
+    "vite-plugin-node-polyfills": "^0.24.0",
     "vue": "^3.4.21"
   },
   "devDependencies": {

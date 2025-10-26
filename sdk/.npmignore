@@ -1,22 +1,9 @@
-# Source files
-src/
-examples/
-*.ts
-!*.d.ts
+# Ignore everything except dist and README.md
+*
 
-# Config files
-tsconfig.json
-.gitignore
+# Include dist directory
+!dist/
+!dist/**
 
-# Development
-node_modules/
-.vscode/
-.idea/
-
-# Documentation
-*.md
+# Include README
 !README.md
-
-# Testing
-coverage/
-.nyc_output/

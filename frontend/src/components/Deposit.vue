@@ -46,7 +46,7 @@ function selectTransferType(type: TransferType) {
   }
 }
 
-function prepareDeposit() {
+async function handleDeposit() {
   if (!isConnected.value) {
     showMessage('Please connect your wallet first', 'error')
     return
@@ -62,20 +62,73 @@ function prepareDeposit() {
     return
   }
 
-  // Show confirmation modal (wallet will be generated during deposit)
-  showConfirmModal.value = true
+  loading.value = true
+  message.value = ''
+
+  setTimeout(async () => {
+    try {
+      // Get SDK instance
+      const sdk = await sdkStore.getSDK()
+
+      showMessage('Preparing deposit transaction...', 'success')
+
+      // Execute deposit first
+      const result = await sdk.deposit({
+        transferType: transferType.value,
+        amount: amount.value,
+        recipientAddress: showAllowAddress.value ? allowAddress.value : undefined,
+      })
+
+      showMessage('Transaction submitted. Waiting for confirmation...', 'success')
+
+      console.log('Deposit result:', {
+        transactionHash: result.transactionHash,
+        password: result.password.toString(),
+        privateKey: result.privateKey,
+        passwordAddress: result.passwordAddress,
+        recipientAddress: result.recipientAddress,
+      })
+
+      // After successful deposit, show the private key modal
+      displayPrivateKey.value = result.privateKey
+      displayAddress.value = result.passwordAddress
+      displayPassword.value = result.password.toString()
+
+      showMessage(
+        `Deposit successful! Transaction: ${result.transactionHash.substring(0, 10)}...`,
+        'success'
+      )
+
+      // Show modal for user to backup private key
+      showConfirmModal.value = true
+      hasConfirmedBackup.value = false
+
+    } catch (error: any) {
+      console.error('Deposit error:', error)
+      showMessage(error.message || 'Deposit failed', 'error')
+    } finally {
+      loading.value = false
+    }
+  }, 20);
+}
+
+function closeModal() {
+  // Reset form after closing modal
+  amount.value = ''
+  allowAddress.value = ''
+  showConfirmModal.value = false
   hasConfirmedBackup.value = false
   displayPrivateKey.value = ''
   displayAddress.value = ''
   displayPassword.value = ''
 }
 
-function closeModal() {
-  showConfirmModal.value = false
-  hasConfirmedBackup.value = false
-  displayPrivateKey.value = ''
-  displayAddress.value = ''
-  displayPassword.value = ''
+function confirmBackup() {
+  if (!hasConfirmedBackup.value) {
+    showMessage('Please confirm you have backed up the private key', 'error')
+    return
+  }
+  closeModal()
 }
 
 async function copyPrivateKey() {
@@ -117,76 +170,6 @@ async function copyPrivateKey() {
   } catch (error: any) {
     console.error('Copy error:', error)
     showMessage(`Copy failed: ${error.message}. Please copy manually.`, 'error')
-  }
-}
-
-async function handleDeposit() {
-  if (!hasConfirmedBackup.value && displayPrivateKey.value) {
-    showMessage('Please confirm you have backed up the private key', 'error')
-    return
-  }
-
-  try {
-    loading.value = true
-    message.value = ''
-
-    // 获取 SDK 实例（Pinia store 确保已初始化）
-    const sdk = await sdkStore.getSDK()
-
-    // If we haven't generated the password wallet yet, do it now
-    if (!displayPrivateKey.value) {
-      const passwordWallet = sdk.generatePasswordWallet()
-      displayPrivateKey.value = passwordWallet.privateKey
-      displayAddress.value = passwordWallet.address
-      displayPassword.value = passwordWallet.privateKey
-
-      // Show the modal with the generated wallet info
-      showConfirmModal.value = true
-      loading.value = false
-      return
-    }
-
-    // User has confirmed backup, proceed with deposit
-    showConfirmModal.value = false
-
-    showMessage('Preparing deposit transaction...', 'success')
-
-    // Use SDK to make deposit
-    const result = await sdk.deposit({
-      transferType: transferType.value,
-      amount: amount.value,
-      recipientAddress: showAllowAddress.value ? allowAddress.value : undefined,
-    })
-
-    showMessage('Transaction submitted. Waiting for confirmation...', 'success')
-
-    showMessage(
-      `Deposit successful! Transaction: ${result.transactionHash.substring(0, 10)}...`,
-      'success'
-    )
-
-    console.log('Deposit result:', {
-      transactionHash: result.transactionHash,
-      password: result.password.toString(),
-      privateKey: result.privateKey,
-      passwordAddress: result.passwordAddress,
-      recipientAddress: result.recipientAddress,
-    })
-
-    // Reset form
-    amount.value = ''
-    allowAddress.value = ''
-    hasConfirmedBackup.value = false
-    displayPrivateKey.value = ''
-    displayAddress.value = ''
-    displayPassword.value = ''
-
-  } catch (error: any) {
-    console.error('Deposit error:', error)
-    showMessage(error.message || 'Deposit failed', 'error')
-    showConfirmModal.value = false
-  } finally {
-    loading.value = false
   }
 }
 
@@ -239,12 +222,12 @@ function showMessage(msg: string, type: 'success' | 'error') {
         </div>
 
         <div class="info-box">
-          <p><strong>Note:</strong> A random private key will be generated for this deposit. You MUST save it to
-            withdraw funds later.</p>
+          <p><strong>Note:</strong> After the deposit transaction is confirmed, you will receive a private key. You MUST
+            save it to withdraw funds later.</p>
         </div>
 
-        <button class="submit-button" :disabled="loading || !isWalletConnected" @click="prepareDeposit">
-          {{ loading ? 'Processing...' : 'Continue to Deposit' }}
+        <button class="submit-button" :disabled="loading || !isWalletConnected" @click="handleDeposit">
+          {{ loading ? 'Processing...' : 'Deposit' }}
         </button>
 
         <div v-if="message" :class="['message', messageType]">
@@ -254,17 +237,18 @@ function showMessage(msg: string, type: 'success' | 'error') {
     </div>
 
     <!-- Confirmation Modal -->
-    <div v-if="showConfirmModal" class="modal-overlay" @click="closeModal">
+    <div v-if="showConfirmModal" class="modal-overlay">
       <div class="modal" @click.stop>
         <div class="modal-header">
-          <h3>Backup Your Private Key</h3>
-          <button class="close-button" @click="closeModal">×</button>
+          <h3>Save Your Private Key</h3>
+          <!-- <button class="close-button" @click="closeModal">×</button> -->
         </div>
 
         <div class="modal-body">
           <div class="warning-box">
-            <p><strong>⚠️ IMPORTANT WARNING</strong></p>
-            <p>Save this private key immediately. You will need it to withdraw your funds.</p>
+            <p><strong>✅ Deposit Successful!</strong></p>
+            <p><strong>⚠️ IMPORTANT:</strong> Save this private key immediately. You will need it to withdraw your
+              funds.</p>
             <p><strong>This key will NEVER be shown again!</strong></p>
           </div>
 
@@ -279,7 +263,7 @@ function showMessage(msg: string, type: 'success' | 'error') {
 
           <div class="wallet-info">
             <div class="info-row">
-              <span class="info-label">Withdrawal Address:</span>
+              <span class="info-label">Private Address:</span>
               <span class="info-value">{{ displayAddress }}</span>
             </div>
           </div>
@@ -292,11 +276,8 @@ function showMessage(msg: string, type: 'success' | 'error') {
           </div>
 
           <div class="modal-actions">
-            <button class="secondary-button" @click="closeModal">
-              Cancel
-            </button>
-            <button class="submit-button" :disabled="!hasConfirmedBackup || loading" @click="handleDeposit">
-              {{ loading ? 'Processing...' : 'Confirm & Deposit' }}
+            <button class="submit-button" :disabled="!hasConfirmedBackup" @click="confirmBackup">
+              I've Backed Up
             </button>
           </div>
         </div>

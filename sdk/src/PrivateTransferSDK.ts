@@ -5,8 +5,7 @@
  * including deposit, withdraw, bounty tasks, and refund operations.
  */
 
-import { BrowserProvider, Contract, Wallet, keccak256, parseEther, formatEther, hexlify } from 'ethers';
-import { createInstance, initSDK } from '@zama-fhe/relayer-sdk/web';
+import { BrowserProvider, Contract, Wallet, parseEther, formatEther, hexlify } from 'ethers';
 import type {
   SDKConfig,
   DepositParams,
@@ -39,68 +38,31 @@ export class PrivateTransferSDK {
   private contract: Contract | null = null;
   private fheInstance: any = null;
   private callbacks: SDKEventCallbacks = {};
-  private static wasmInitialized: boolean = false;
-  private static wasmInitPromise: Promise<void> | null = null;
 
   /**
    * Create a new PrivateTransferSDK instance
-   * @param config SDK configuration
+   * @param config SDK configuration (optional, uses defaults if not provided)
    */
-  constructor(config: SDKConfig) {
+  constructor(config?: SDKConfig) {
     this.config = {
-      contractAddress: config.contractAddress || DEFAULT_CONTRACT_ADDRESS,
-      rpcUrl: config.rpcUrl || DEFAULT_RPC_URL,
-      provider: config.provider,
-      signer: config.signer,
+      contractAddress: config?.contractAddress || DEFAULT_CONTRACT_ADDRESS,
+      rpcUrl: config?.rpcUrl || DEFAULT_RPC_URL,
+      provider: config?.provider,
+      signer: config?.signer,
     } as Required<SDKConfig>;
   }
 
-  /**
-   * Initialize WASM modules (can be called manually or will be auto-called)
-   * @param wasmPaths Optional custom WASM file paths
-   */
-  static async initializeWasm(wasmPaths?: { tfheParams?: string; kmsParams?: string }): Promise<void> {
-    if (PrivateTransferSDK.wasmInitialized) {
-      return;
-    }
-
-    if (PrivateTransferSDK.wasmInitPromise) {
-      return PrivateTransferSDK.wasmInitPromise;
-    }
-
-    PrivateTransferSDK.wasmInitPromise = (async () => {
-      try {
-        await initSDK({
-          tfheParams: wasmPaths?.tfheParams || '/wasm/tfhe_bg.wasm',
-          kmsParams: wasmPaths?.kmsParams || '/wasm/kms_lib_bg.wasm',
-        });
-        PrivateTransferSDK.wasmInitialized = true;
-        console.log('[PrivateTransferSDK] WASM modules initialized successfully');
-      } catch (error) {
-        console.error('[PrivateTransferSDK] Failed to initialize WASM modules:', error);
-        throw new Error(
-          `Failed to initialize Zama FHE WASM modules. Please ensure WASM files are available at /wasm/tfhe_bg.wasm and /wasm/kms_lib_bg.wasm, or call PrivateTransferSDK.initializeWasm() with custom paths. Error: ${(error as Error).message}`
-        );
-      }
-    })();
-
-    return PrivateTransferSDK.wasmInitPromise;
-  }
 
   /**
    * Initialize the SDK (must be called before using other methods)
    * @param provider Optional provider (browser wallet provider)
    */
-  async initialize(provider?: any): Promise<void> {
+  async initialize(instance: any, provider?: any): Promise<void> {
     try {
-      // Ensure WASM is initialized first
-      if (!PrivateTransferSDK.wasmInitialized) {
-        console.log('[PrivateTransferSDK] Auto-initializing WASM modules...');
-        await PrivateTransferSDK.initializeWasm();
-      }
-
       // Initialize FHE instance
-      this.fheInstance = await createInstance(SEPOLIA_FHE_CONFIG);
+      console.log('[PrivateTransferSDK] Initializing FHE instance...');
+      this.fheInstance = instance
+      console.log('[PrivateTransferSDK] ✅ FHE instance created successfully');
 
       // Initialize provider and signer if not provided
       if (!this.config.provider && provider) {
@@ -115,7 +77,10 @@ export class PrivateTransferSDK {
       if (this.config.signer) {
         this.contract = new Contract(this.config.contractAddress, CONTRACT_ABI, this.config.signer);
       }
+
+      console.log('[PrivateTransferSDK] ✅ SDK initialized successfully');
     } catch (error) {
+      console.error('[PrivateTransferSDK] ❌ Initialization failed:', error);
       throw new Error(`Failed to initialize SDK: ${(error as Error).message}`);
     }
   }
@@ -147,12 +112,16 @@ export class PrivateTransferSDK {
    * @returns Deposit result including generated password wallet
    */
   async deposit(params: DepositParams): Promise<DepositResult> {
-    if (!this.contract || !this.fheInstance) {
+    if (!this.fheInstance) {
       throw new Error('SDK not initialized. Call initialize() first.');
     }
 
+    if (!this.contract) {
+      throw new Error('Contract not initialized. Please ensure SDK is initialized with a wallet provider.');
+    }
+
     if (!this.config.signer) {
-      throw new Error('Signer not available. Please provide a signer.');
+      throw new Error('Signer not available. Please connect your wallet first.');
     }
 
     // Validate parameters
@@ -184,6 +153,7 @@ export class PrivateTransferSDK {
       const signerAddress = await this.config.signer.getAddress();
 
       // Create encrypted input
+      console.log('[SDK] Creating encrypted input...')
       const input = this.fheInstance.createEncryptedInput(this.config.contractAddress, signerAddress);
       input.add256(passwordUint256);
       input.add256(BigInt(params.transferType));
@@ -191,11 +161,20 @@ export class PrivateTransferSDK {
       input.addAddress(targetAddress);
 
       // Encrypt
-      const encryptedInput = await input.encrypt();
+      console.log('[SDK] Starting encryption...')
+      let encryptedInput;
+      try {
+        encryptedInput = await input.encrypt()
+        console.log('[SDK] Encryption completed')
+      } catch (encryptError) {
+        console.error('[SDK] Encryption failed:', encryptError)
+        throw new Error(`Encryption failed: ${(encryptError as Error).message}. Make sure WASM files are loaded correctly.`)
+      }
+
       const handles = encryptedInput.handles;
       const inputProof = encryptedInput.inputProof;
-
       // Call deposit function
+      console.log('[SDK] Submitting transaction...')
       const tx = await this.contract.deposit(
         handles[0], // password
         handles[1], // transferType
@@ -205,6 +184,7 @@ export class PrivateTransferSDK {
         { value: BigInt(parseFloat(params.amount) * 1e18) }
       );
 
+      console.log('[SDK] Transaction submitted:', tx.hash)
       this.callbacks.onTransactionSubmitted?.(tx.hash);
 
       const receipt = await tx.wait();
@@ -220,6 +200,7 @@ export class PrivateTransferSDK {
         blockNumber: receipt.blockNumber,
       };
     } catch (error) {
+      console.error('[SDK] Deposit error:', error)
       const err = new Error(`Deposit failed: ${(error as Error).message}`);
       this.callbacks.onError?.(err);
       throw err;
@@ -243,11 +224,9 @@ export class PrivateTransferSDK {
     try {
       // Create wallet from private key
       const wallet = new Wallet(privateKey);
-      const passwordUint256 = BigInt(wallet.privateKey);
-
+      const passwordUint256 = BigInt(privateKey);
       // Get vault info from contract
       const vault = await this.contract.getVault(passwordUint256);
-
       if (!vault.isPublished) {
         throw new Error('No vault found for this password');
       }
@@ -531,7 +510,6 @@ export class PrivateTransferSDK {
 
       // Call refund function
       const tx = await this.contract.refund(handles[0], inputProof);
-
       this.callbacks.onTransactionSubmitted?.(tx.hash);
 
       const receipt = await tx.wait();

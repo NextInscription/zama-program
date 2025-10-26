@@ -1,21 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useWallet } from '../stores/wallet'
-import { BrowserProvider, Contract, Wallet, parseEther, formatEther as ethersFormatEther, hexlify } from 'ethers'
-import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/web'
-import { CONTRACT_ADDRESS } from '../config/web3modal'
-import contractABI from '../constant/abi.json'
+import { useSDKStore } from '../stores/sdkStore'
+import { formatEther as ethersFormatEther } from 'ethers'
+import type { VaultInfo } from '@zama-private-transfer/sdk'
 
-const { address, chainId, isConnected, walletProvider } = useWallet()
-let fheInstance: any = null
+const { isConnected } = useWallet()
+const sdkStore = useSDKStore()
 
-// Initialize FHE instance on demand
-async function getFheInstance() {
-  if (!fheInstance) {
-    fheInstance = await createInstance(SepoliaConfig)
-  }
-  return fheInstance
-}
 const privateKey = ref('')
 const withdrawAmount = ref('')
 const loading = ref(false)
@@ -23,14 +15,17 @@ const loadingVault = ref(false)
 const loadingRefund = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error' | ''>('')
-const vaultInfo = ref<any>(null)
+const vaultInfo = ref<VaultInfo | null>(null)
 
 const isWalletConnected = computed(() => isConnected.value)
-const hasVaultInfo = computed(() => vaultInfo.value !== null)
-const hasBalance = computed(() => vaultInfo.value && parseFloat(vaultInfo.value.balance) > 0)
+const hasVaultInfo = computed(() => vaultInfo.value !== null && vaultInfo.value.isPublished)
+const hasBalance = computed(() => vaultInfo.value && parseFloat(vaultInfo.value.balanceEth) > 0)
+
+// SDK 会在钱包连接时自动初始化（通过 Pinia store 的 watch）
+// 不需要手动初始化！
 
 async function loadVaultInfo() {
-  if (!walletProvider.value || !isConnected.value) {
+  if (!isConnected.value) {
     showMessage('Please connect your wallet first', 'error')
     return
   }
@@ -45,86 +40,19 @@ async function loadVaultInfo() {
     message.value = ''
     vaultInfo.value = null
 
-    // Get provider and contract
-    const provider = new BrowserProvider(walletProvider.value)
-    const signer = await provider.getSigner()
-    const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
+    // 获取 SDK 实例（Pinia store 确保已初始化）
+    const sdk = await sdkStore.getSDK()
 
-    // Create wallet from private key
-    const wallet = new Wallet(privateKey.value)
-    const privateKeyUint256 = BigInt(wallet.privateKey)
+    // Get vault info using SDK
+    const vault = await sdk.getVaultInfo(privateKey.value)
 
-    // Get vault info from contract
-    const vault = await contract.getVault(privateKeyUint256)
-    console.log(vault)
     if (!vault.isPublished) {
       showMessage('No vault found for this private key', 'error')
       return
     }
 
-    // Decrypt vault information using userDecrypt
-    try {
-      const fhe = await getFheInstance()
-
-      // Generate keypair for decryption
-      const keypair = fhe.generateKeypair()
-
-      // Store handles as strings
-      const transferTypeHandle = hexlify(vault.transferType)
-      const balanceHandle = hexlify(vault.balance)
-      const depositorHandle = hexlify(vault.depositor)
-      const allowAddressHandle = hexlify(vault.allowAddress)
-
-      // Prepare handle-contract pairs
-      const handleContractPairs = [
-        { handle: transferTypeHandle, contractAddress: CONTRACT_ADDRESS },
-        { handle: balanceHandle, contractAddress: CONTRACT_ADDRESS },
-        { handle: depositorHandle, contractAddress: CONTRACT_ADDRESS },
-        { handle: allowAddressHandle, contractAddress: CONTRACT_ADDRESS }
-      ]
-
-      // Create EIP712 signature request
-      const startTimeStamp = Math.floor(Date.now() / 1000).toString()
-      const durationDays = '10'
-      const contractAddresses = [CONTRACT_ADDRESS]
-
-      const eip712 = fhe.createEIP712(
-        keypair.publicKey,
-        contractAddresses,
-        startTimeStamp,
-        durationDays
-      )
-
-      // Sign with the private key wallet
-      const signature = await wallet.signTypedData(
-        eip712.domain,
-        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
-        eip712.message
-      )
-
-      // Perform user decryption
-      const result = await fhe.userDecrypt(
-        handleContractPairs,
-        keypair.privateKey,
-        keypair.publicKey,
-        signature.replace('0x', ''),
-        contractAddresses,
-        wallet.address,
-        startTimeStamp,
-        durationDays
-      )
-      vaultInfo.value = {
-        transferType: Number(result[transferTypeHandle]),
-        balance: result[balanceHandle].toString(),
-        depositor: result[depositorHandle].toString(),
-        allowAddress: result[allowAddressHandle].toString(),
-        walletAddress: wallet.address
-      }
-      showMessage('Vault information loaded successfully', 'success')
-    } catch (decryptError) {
-      console.error('Decryption error:', decryptError)
-      showMessage('Failed to decrypt vault information. You may not have permission to access this vault.', 'error')
-    }
+    vaultInfo.value = vault
+    showMessage('Vault information loaded successfully', 'success')
 
   } catch (error: any) {
     console.error('Load vault error:', error)
@@ -135,7 +63,7 @@ async function loadVaultInfo() {
 }
 
 async function handleWithdraw() {
-  if (!walletProvider.value || !isConnected.value) {
+  if (!isConnected.value) {
     showMessage('Please connect your wallet first', 'error')
     return
   }
@@ -154,39 +82,23 @@ async function handleWithdraw() {
     loading.value = true
     message.value = ''
 
-    // Get provider and contract
-    const provider = new BrowserProvider(walletProvider.value)
-    const signer = await provider.getSigner()
-    const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
+    // 获取 SDK 实例（Pinia store 确保已初始化）
+    const sdk = await sdkStore.getSDK()
 
-    const wallet = new Wallet(privateKey.value)
-    const privateKeyUint256 = BigInt(wallet.privateKey)
+    showMessage('Submitting withdrawal transaction...', 'success')
 
-    const amountWei = parseEther(withdrawAmount.value.toString())
+    // Use SDK to withdraw
+    const result = await sdk.withdraw({
+      privateKey: privateKey.value,
+      amount: withdrawAmount.value,
+    })
 
-    // Encrypt private key and amount
-    const fhe = await getFheInstance()
-    const encryptedInput = await fhe
-      .createEncryptedInput(CONTRACT_ADDRESS, address.value!)
-      .add256(privateKeyUint256)
-      .add256(BigInt(amountWei.toString()))
-      .encrypt()
-
-    const handles = encryptedInput.handles.map((h: Uint8Array) => hexlify(h))
-    const inputProof = hexlify(encryptedInput.inputProof)
-
-    // Call withdraw function
-    const tx = await contract.withdraw(
-      handles[0],
-      handles[1],
-      inputProof
+    showMessage(
+      `Withdrawal successful! ${result.amount} ETH withdrawn. Transaction: ${result.transactionHash.substring(0, 10)}...`,
+      'success'
     )
 
-    showMessage('Withdrawal transaction submitted. Waiting for confirmation...', 'success')
-
-    await tx.wait()
-
-    showMessage('Withdrawal successful!', 'success')
+    console.log('Withdrawal result:', result)
 
     // Reset form
     withdrawAmount.value = ''
@@ -202,7 +114,7 @@ async function handleWithdraw() {
 }
 
 async function handleRefund() {
-  if (!walletProvider.value || !isConnected.value) {
+  if (!isConnected.value) {
     showMessage('Please connect your wallet first', 'error')
     return
   }
@@ -221,32 +133,22 @@ async function handleRefund() {
     loadingRefund.value = true
     message.value = ''
 
-    // Get provider and contract
-    const provider = new BrowserProvider(walletProvider.value)
-    const signer = await provider.getSigner()
-    const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
+    // 获取 SDK 实例（Pinia store 确保已初始化）
+    const sdk = await sdkStore.getSDK()
 
-    const wallet = new Wallet(privateKey.value)
-    const privateKeyUint256 = BigInt(wallet.privateKey)
+    showMessage('Submitting refund transaction...', 'success')
 
-    // Encrypt private key
-    const fhe = await getFheInstance()
-    const encryptedInput = await fhe
-      .createEncryptedInput(CONTRACT_ADDRESS, address.value!)
-      .add256(privateKeyUint256)
-      .encrypt()
+    // Use SDK to refund
+    const result = await sdk.refund({
+      privateKey: privateKey.value,
+    })
 
-    const handle = hexlify(encryptedInput.handles[0])
-    const inputProof = hexlify(encryptedInput.inputProof)
+    showMessage(
+      `Refund successful! ${result.amount} ETH refunded. Transaction: ${result.transactionHash.substring(0, 10)}...`,
+      'success'
+    )
 
-    // Call refund function
-    const tx = await contract.refund(handle, inputProof)
-
-    showMessage('Refund transaction submitted. Waiting for confirmation...', 'success')
-
-    await tx.wait()
-
-    showMessage('Refund successful! All funds have been returned.', 'success')
+    console.log('Refund result:', result)
 
     // Reset form
     withdrawAmount.value = ''
@@ -274,7 +176,7 @@ function showMessage(msg: string, type: 'success' | 'error') {
 
 function formatEther(wei: string): string {
   try {
-    return ethersFormatEther(wei)
+    return wei ? ethersFormatEther(wei) : '0'
   } catch {
     return '0'
   }
@@ -321,11 +223,11 @@ function getTransferTypeName(type: number): string {
             </div>
             <div class="info-item">
               <span class="info-label">Balance:</span>
-              <span class="info-value text-success">{{ formatEther(vaultInfo.balance) }} ETH</span>
+              <span class="info-value text-success">{{ vaultInfo.balanceEth }} ETH</span>
             </div>
             <div class="info-item">
-              <span class="info-label">Wallet Address:</span>
-              <span class="info-value small">{{ vaultInfo.walletAddress }}</span>
+              <span class="info-label">Password Address:</span>
+              <span class="info-value small">{{ vaultInfo.passwordAddress }}</span>
             </div>
             <div class="info-item">
               <span class="info-label">Depositor:</span>
@@ -340,9 +242,9 @@ function getTransferTypeName(type: number): string {
           <div class="form-group" style="margin-top: 2rem;">
             <label for="withdrawAmount">Withdrawal Amount (ETH)</label>
             <input id="withdrawAmount" v-model="withdrawAmount" type="number" step="0.001" min="0"
-              :max="formatEther(vaultInfo.balance)" placeholder="0.0" :disabled="loading || loadingRefund" />
+              :max="vaultInfo.balanceEth" placeholder="0.0" :disabled="loading || loadingRefund" />
             <p class="hint">
-              Maximum: {{ formatEther(vaultInfo.balance) }} ETH
+              Maximum: {{ vaultInfo.balanceEth }} ETH
             </p>
           </div>
 

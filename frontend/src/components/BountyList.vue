@@ -1,34 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useWallet } from '../stores/wallet'
-import { BrowserProvider, Contract, formatEther as ethersFormatEther, hexlify } from 'ethers'
-import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/web'
-import { CONTRACT_ADDRESS } from '../config/web3modal'
-import contractABI from '../constant/abi.json'
+import { useSDKStore } from '../stores/sdkStore'
+import { formatEther as ethersFormatEther } from 'ethers'
+import type { BountyTask } from '@zama-private-transfer/sdk'
 
-let fheInstance: any = null
+const { isConnected } = useWallet()
+const sdkStore = useSDKStore()
 
-// Initialize FHE instance on demand
-async function getFheInstance() {
-  if (!fheInstance) {
-    fheInstance = await createInstance(SepoliaConfig)
-  }
-  return fheInstance
-}
-
-interface Task {
-  password: bigint
-  amount: bigint
-  commission: string
-  totalReward: string
-}
-
-const { address, isConnected, walletProvider } = useWallet()
-const tasks = ref<Task[]>([])
+const tasks = ref<BountyTask[]>([])
 const fee = ref<number>(0)
 const loading = ref(false)
 const loadingTask = ref(false)
-const selectedTask = ref<Task | null>(null)
+const selectedTask = ref<BountyTask | null>(null)
 const message = ref('')
 const messageType = ref<'success' | 'error' | ''>('')
 
@@ -37,6 +21,7 @@ const isWalletConnected = computed(() => isConnected.value)
 let refreshInterval: NodeJS.Timeout | null = null
 
 onMounted(() => {
+  // SDK 会在钱包连接时自动初始化（通过 Pinia store 的 watch）
   if (isConnected.value) {
     loadTasks()
     // Auto-refresh every 10 seconds
@@ -55,7 +40,7 @@ onUnmounted(() => {
 })
 
 async function loadTasks() {
-  if (!walletProvider.value || !isConnected.value) {
+  if (!isConnected.value) {
     return
   }
 
@@ -67,15 +52,13 @@ async function loadTasks() {
     }
     message.value = ''
 
-    // Get provider and contract
-    const provider = new BrowserProvider(walletProvider.value)
-    const signer = await provider.getSigner()
-    const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
+    // 获取 SDK 实例（Pinia store 确保已初始化）
+    const sdk = await sdkStore.getSDK()
 
-    // Get fee from contract
+    // Get fee from SDK
     try {
-      const feeValue = await contract.fee()
-      fee.value = Number(feeValue)
+      const feeValue = await sdk.getFeeRate()
+      fee.value = feeValue
     } catch (feeError) {
       console.error('Failed to get fee:', feeError)
       if (fee.value === 0) {
@@ -83,26 +66,10 @@ async function loadTasks() {
       }
     }
 
-    // Get all tasks
+    // Get all bounty tasks using SDK
     try {
-      const tasksData = await contract.getTasks()
-      console.log('Tasks data:', tasksData)
-
-      // Process tasks data
-      const newTasks = tasksData && tasksData.length > 0
-        ? tasksData.map((task: any) => {
-            const amount = BigInt(task.amount)
-            const commission = (amount * BigInt(fee.value)) / BigInt(1000)
-            const totalReward = commission
-
-            return {
-              password: BigInt(task.password),
-              amount: amount,
-              commission: formatEther(commission.toString()),
-              totalReward: formatEther(totalReward.toString())
-            }
-          })
-        : []
+      const newTasks = await sdk.getBountyTasks()
+      console.log('Tasks loaded:', newTasks)
 
       // Only update tasks if data changed
       tasks.value = newTasks
@@ -130,8 +97,8 @@ async function loadTasks() {
   }
 }
 
-async function handleEntrustWithdraw(task: Task) {
-  if (!walletProvider.value || !isConnected.value) {
+async function handleEntrustWithdraw(task: BountyTask) {
+  if (!isConnected.value) {
     showMessage('Please connect your wallet first', 'error')
     return
   }
@@ -140,35 +107,23 @@ async function handleEntrustWithdraw(task: Task) {
     loadingTask.value = true
     message.value = ''
 
-    // Get provider and contract
-    const provider = new BrowserProvider(walletProvider.value)
-    const signer = await provider.getSigner()
-    const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
+    // 获取 SDK 实例（Pinia store 确保已初始化）
+    const sdk = await sdkStore.getSDK()
 
-    // Use the password from the task
-    const passwordUint256 = task.password
+    showMessage('Submitting entrust withdrawal transaction...', 'success')
 
-    // Encrypt password
-    const fhe = await getFheInstance()
-    const encryptedInput = await fhe
-      .createEncryptedInput(CONTRACT_ADDRESS, address.value!)
-      .add256(passwordUint256)
-      .encrypt()
+    // Use SDK to complete the task
+    const result = await sdk.completeTask({
+      task: task,
+      password: task.password,
+    })
 
-    const handle = hexlify(encryptedInput.handles[0])
-    const inputProof = hexlify(encryptedInput.inputProof)
-
-    // Call entrustWithdraw function
-    const tx = await contract.entrustWithdraw(
-      handle,
-      inputProof
+    showMessage(
+      `Task completed successfully! You earned ${result.commission} ETH commission. Transaction: ${result.transactionHash.substring(0, 10)}...`,
+      'success'
     )
 
-    showMessage('Entrust withdrawal transaction submitted. Waiting for confirmation...', 'success')
-
-    await tx.wait()
-
-    showMessage(`Entrust withdrawal successful! You earned ${task.commission} ETH commission`, 'success')
+    console.log('Task completion result:', result)
 
     // Reload tasks
     selectedTask.value = null
@@ -201,7 +156,7 @@ function formatEther(wei: string): string {
   }
 }
 
-function selectTask(task: Task) {
+function selectTask(task: BountyTask) {
   selectedTask.value = task
   message.value = ''
 }

@@ -1,53 +1,49 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useWallet } from '../stores/wallet'
-import { BrowserProvider, Contract, Wallet, HDNodeWallet } from 'ethers'
-import { createInstance, SepoliaConfig } from '@zama-fhe/relayer-sdk/web';
-import { BLACKHOLE_ADDRESS, CONTRACT_ADDRESS } from '../config/web3modal'
-import contractABI from '../constant/abi.json'
-type TransferType = 1 | 2 | 3
-// Initialize FHE instance
-const { address, chainId, isConnected, walletProvider } = useWallet()
-const transferType = ref<TransferType>(1)
+import { useSDKStore } from '../stores/sdkStore'
+import { TransferType } from '@zama-private-transfer/sdk'
+
+const { isConnected } = useWallet()
+const sdkStore = useSDKStore()
+
+const transferType = ref<TransferType>(TransferType.SPECIFIED_RECIPIENT)
 const amount = ref('')
 const allowAddress = ref('')
 const loading = ref(false)
 const message = ref('')
 const messageType = ref<'success' | 'error' | ''>('')
-const generatedWallet = ref<HDNodeWallet | null>(null)
 const showConfirmModal = ref(false)
 const hasConfirmedBackup = ref(false)
 const displayPrivateKey = ref('')
 const displayAddress = ref('')
+const displayPassword = ref('')
+
+// SDK 会在钱包连接时自动初始化（通过 Pinia store 的 watch）
+// 不需要手动初始化！
 
 const transferTypeOptions = [
-  { value: 1, label: 'Type 1: Specified Recipient', description: 'Only the specified recipient can withdraw' },
-  { value: 2, label: 'Type 2: Anyone with Password', description: 'Anyone with the password can withdraw' },
-  { value: 3, label: 'Type 3: Entrusted Withdrawal', description: 'Trustee withdraws on behalf of recipient' }
+  { value: TransferType.SPECIFIED_RECIPIENT, label: 'Type 1: Specified Recipient', description: 'Only the specified recipient can withdraw' },
+  { value: TransferType.ANYONE_WITH_PASSWORD, label: 'Type 2: Anyone with Password', description: 'Anyone with the password can withdraw' },
+  { value: TransferType.ENTRUSTED_WITHDRAWAL, label: 'Type 3: Entrusted Withdrawal', description: 'Trustee withdraws on behalf of recipient' }
 ]
 
 const isWalletConnected = computed(() => isConnected.value)
-const showAllowAddress = computed(() => transferType.value === 1 || transferType.value === 3)
+const showAllowAddress = computed(() =>
+  transferType.value === TransferType.SPECIFIED_RECIPIENT ||
+  transferType.value === TransferType.ENTRUSTED_WITHDRAWAL
+)
 const allowAddressPlaceholder = computed(() => {
-  if (transferType.value === 1) return 'Enter recipient address'
-  if (transferType.value === 3) return 'Enter recipient address for trustee'
+  if (transferType.value === TransferType.SPECIFIED_RECIPIENT) return 'Enter recipient address'
+  if (transferType.value === TransferType.ENTRUSTED_WITHDRAWAL) return 'Enter recipient address for trustee'
   return ''
 })
 
 function selectTransferType(type: TransferType) {
   transferType.value = type
-  if (type === 2) {
+  if (type === TransferType.ANYONE_WITH_PASSWORD) {
     allowAddress.value = ''
   }
-}
-
-function generateWallet() {
-  const wallet = Wallet.createRandom()
-  // Extract values BEFORE storing in reactive ref to avoid Vue proxy issues
-  displayPrivateKey.value = wallet.privateKey
-  displayAddress.value = wallet.address
-  // Store the wallet object (it won't be accessed in template)
-  generatedWallet.value = wallet
 }
 
 function prepareDeposit() {
@@ -66,18 +62,20 @@ function prepareDeposit() {
     return
   }
 
-  // Generate wallet and show confirmation modal
-  generateWallet()
+  // Show confirmation modal (wallet will be generated during deposit)
   showConfirmModal.value = true
   hasConfirmedBackup.value = false
+  displayPrivateKey.value = ''
+  displayAddress.value = ''
+  displayPassword.value = ''
 }
 
 function closeModal() {
   showConfirmModal.value = false
-  generatedWallet.value = null
   hasConfirmedBackup.value = false
   displayPrivateKey.value = ''
   displayAddress.value = ''
+  displayPassword.value = ''
 }
 
 async function copyPrivateKey() {
@@ -123,102 +121,70 @@ async function copyPrivateKey() {
 }
 
 async function handleDeposit() {
-  if (!generatedWallet.value) {
-    showMessage('Please generate a wallet first', 'error')
-    return
-  }
-
-  if (!hasConfirmedBackup.value) {
+  if (!hasConfirmedBackup.value && displayPrivateKey.value) {
     showMessage('Please confirm you have backed up the private key', 'error')
     return
   }
 
   try {
     loading.value = true
-    showConfirmModal.value = false
     message.value = ''
 
-    // Use the extracted private key and address (not from reactive ref)
-    const passwordUint256 = BigInt(displayPrivateKey.value)
-    const passwordAddress = displayAddress.value
+    // 获取 SDK 实例（Pinia store 确保已初始化）
+    const sdk = await sdkStore.getSDK()
 
-    // Get provider and contract
-    if (!walletProvider.value) {
-      throw new Error('Wallet provider not available')
-    }
-    const provider = new BrowserProvider(walletProvider.value)
-    const signer = await provider.getSigner()
-    const contract = new Contract(CONTRACT_ADDRESS, contractABI, signer)
+    // If we haven't generated the password wallet yet, do it now
+    if (!displayPrivateKey.value) {
+      const passwordWallet = sdk.generatePasswordWallet()
+      displayPrivateKey.value = passwordWallet.privateKey
+      displayAddress.value = passwordWallet.address
+      displayPassword.value = passwordWallet.privateKey
 
-    // Check signer address matches wallet address
-    const signerAddress = await signer.getAddress()
-    console.log('Wallet address:', address.value)
-    console.log('Signer address:', signerAddress)
-    console.log('Contract address:', CONTRACT_ADDRESS)
-
-    if (signerAddress.toLowerCase() !== address.value!.toLowerCase()) {
-      throw new Error('Signer address does not match wallet address')
+      // Show the modal with the generated wallet info
+      showConfirmModal.value = true
+      loading.value = false
+      return
     }
 
-    // Encrypt all parameters in one input
-    const targetAddress = transferType.value === 2 ? BLACKHOLE_ADDRESS : allowAddress.value
-    console.log('Encryption params:', {
-      password: passwordUint256.toString(),
+    // User has confirmed backup, proceed with deposit
+    showConfirmModal.value = false
+
+    showMessage('Preparing deposit transaction...', 'success')
+
+    // Use SDK to make deposit
+    const result = await sdk.deposit({
       transferType: transferType.value,
-      passwordAddress,
-      targetAddress
+      amount: amount.value,
+      recipientAddress: showAllowAddress.value ? allowAddress.value : undefined,
     })
-
-    const fheInstance = await createInstance(SepoliaConfig)
-    console.log('FHE Instance created:', fheInstance)
-    console.log('Creating encrypted input for contract:', CONTRACT_ADDRESS, 'user:', signerAddress)
-
-    const input = fheInstance.createEncryptedInput(CONTRACT_ADDRESS, signerAddress)
-    console.log('Encrypted input created successfully')
-    input.add256(passwordUint256)
-    input.add256(BigInt(transferType.value))
-    input.addAddress(passwordAddress)
-    input.addAddress(targetAddress)
-
-    console.log('Starting encryption...')
-    const encryptedInput = await input.encrypt()
-    console.log('Encryption completed')
-
-    // The encrypted data structure contains handles and inputProof
-    const handles = encryptedInput.handles
-    const inputProof = encryptedInput.inputProof
-
-    console.log('Encrypted handles:', handles)
-    console.log('Input proof length:', inputProof.length)
-
-    // Call deposit function
-    // Contract expects: externalEuint256, externalEuint256, externalEaddress, externalEaddress, bytes
-    const tx = await contract.deposit(
-      handles[0],  // password
-      handles[1],  // transferType
-      handles[2],  // passwordAddress
-      handles[3],  // allowAddress
-      inputProof,
-      { value: BigInt(parseFloat(amount.value) * 1e18) }
-    )
 
     showMessage('Transaction submitted. Waiting for confirmation...', 'success')
 
-    await tx.wait()
+    showMessage(
+      `Deposit successful! Transaction: ${result.transactionHash.substring(0, 10)}...`,
+      'success'
+    )
 
-    showMessage(`Deposit successful! Password wallet address: ${passwordAddress}`, 'success')
+    console.log('Deposit result:', {
+      transactionHash: result.transactionHash,
+      password: result.password.toString(),
+      privateKey: result.privateKey,
+      passwordAddress: result.passwordAddress,
+      recipientAddress: result.recipientAddress,
+    })
 
     // Reset form
     amount.value = ''
     allowAddress.value = ''
-    generatedWallet.value = null
     hasConfirmedBackup.value = false
     displayPrivateKey.value = ''
     displayAddress.value = ''
+    displayPassword.value = ''
 
   } catch (error: any) {
     console.error('Deposit error:', error)
     showMessage(error.message || 'Deposit failed', 'error')
+    showConfirmModal.value = false
   } finally {
     loading.value = false
   }

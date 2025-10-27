@@ -29,7 +29,6 @@ describe("PrivateTransfer", function () {
 
   beforeEach(async function () {
     if (!fhevm.isMock) {
-      console.warn(`This hardhat test suite cannot run on Sepolia Testnet`);
       this.skip();
     }
     ({ PrivateTransferContract, PrivateTransferContractAddress } = await deployFixture());
@@ -86,8 +85,6 @@ describe("PrivateTransfer", function () {
     );
     await deposittx.wait();
     await fhevm.awaitDecryptionOracle();
-    console.log("质押完成")
-    console.log("开始领取")
     const withdrawAmount = ethers.parseEther("0.2");
     const encryptedWithdrawInput = await fhevm
       .createEncryptedInput(PrivateTransferContractAddress, signers.deployer.address)
@@ -102,8 +99,6 @@ describe("PrivateTransfer", function () {
     await withdrawtx.wait();
     await fhevm.awaitDecryptionOracle();
     await fhevm.awaitDecryptionOracle();
-    console.log("领取完成")
-    console.log("开始获取vault")
     const vault = await PrivateTransferContract.getVault(password);
     expect(vault.isPublished).to.equal(true);
     const decryptedBalance = await fhevm.userDecryptEuint(
@@ -112,7 +107,6 @@ describe("PrivateTransfer", function () {
       PrivateTransferContractAddress,
       passwordWallet,
     );
-    console.log("剩余金额", decryptedBalance)
     for (let item of vault.withdrawal) {
       const decryptedReceiver = await fhevm.userDecryptEaddress(
         item.receiver,
@@ -125,7 +119,6 @@ describe("PrivateTransfer", function () {
         PrivateTransferContractAddress,
         passwordWallet,
       );
-      console.log(decryptedReceiver, decryptedAmount)
     }
   });
   it("deposit transferType 2", async function () {
@@ -154,8 +147,6 @@ describe("PrivateTransfer", function () {
     );
     await deposittx.wait();
     await fhevm.awaitDecryptionOracle();
-    console.log("质押完成")
-    console.log("开始领取")
     const withdrawAmount = ethers.parseEther("0.2");
     const encryptedWithdrawInput = await fhevm
       .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
@@ -170,8 +161,6 @@ describe("PrivateTransfer", function () {
     await withdrawtx.wait();
     await fhevm.awaitDecryptionOracle();
     await fhevm.awaitDecryptionOracle();
-    console.log("领取完成")
-    console.log("开始获取vault")
     const vault = await PrivateTransferContract.getVault(password);
     expect(vault.isPublished).to.equal(true);
     const decryptedBalance = await fhevm.userDecryptEuint(
@@ -180,7 +169,6 @@ describe("PrivateTransfer", function () {
       PrivateTransferContractAddress,
       passwordWallet,
     );
-    console.log("剩余金额", decryptedBalance)
     for (let item of vault.withdrawal) {
       const decryptedReceiver = await fhevm.userDecryptEaddress(
         item.receiver,
@@ -193,7 +181,6 @@ describe("PrivateTransfer", function () {
         PrivateTransferContractAddress,
         passwordWallet,
       );
-      console.log(decryptedReceiver, decryptedAmount)
     }
   });
   it("deposit transferType 3", async function () {
@@ -222,10 +209,7 @@ describe("PrivateTransfer", function () {
     );
     await deposittx.wait();
     await fhevm.awaitDecryptionOracle();
-    console.log("质押完成")
-    const beforpasswords = await PrivateTransferContract.getPasswords();
-    console.log(beforpasswords)
-    console.log("开始领取")
+    const beforpasswords = await PrivateTransferContract.getTasks();
     const encryptedWithdrawInput = await fhevm
       .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
       .add256(password)
@@ -237,8 +221,6 @@ describe("PrivateTransfer", function () {
     const withDrawResult = await withdrawtx.wait();
     await fhevm.awaitDecryptionOracle();
     await fhevm.awaitDecryptionOracle();
-    console.log("领取完成")
-    console.log("开始获取vault")
     const vault = await PrivateTransferContract.getVault(password);
     expect(vault.isPublished).to.equal(true);
     const decryptedBalance = await fhevm.userDecryptEuint(
@@ -247,7 +229,6 @@ describe("PrivateTransfer", function () {
       PrivateTransferContractAddress,
       passwordWallet,
     );
-    console.log("剩余金额", decryptedBalance)
     for (let item of vault.withdrawal) {
       const decryptedReceiver = await fhevm.userDecryptEaddress(
         item.receiver,
@@ -260,10 +241,8 @@ describe("PrivateTransfer", function () {
         PrivateTransferContractAddress,
         passwordWallet,
       );
-      console.log(decryptedReceiver, decryptedAmount)
     }
-    const passwords = await PrivateTransferContract.getPasswords();
-    console.log(passwords)
+    const passwords = await PrivateTransferContract.getTasks();
   });
   it("deposit transferType 2 and refund", async function () {
     const passwordWallet = ethers.Wallet.createRandom().connect(ethers.provider);
@@ -291,8 +270,6 @@ describe("PrivateTransfer", function () {
     );
     await deposittx.wait();
     await fhevm.awaitDecryptionOracle();
-    console.log("质押完成")
-    console.log("开始领取")
     const withdrawAmount = ethers.parseEther("0.2");
     const encryptedWithdrawInput = await fhevm
       .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
@@ -307,8 +284,6 @@ describe("PrivateTransfer", function () {
     await withdrawtx.wait();
     await fhevm.awaitDecryptionOracle();
     await fhevm.awaitDecryptionOracle();
-    console.log("领取完成")
-    console.log("开始退款")
     const encryptedRefundInput = await fhevm
       .createEncryptedInput(PrivateTransferContractAddress, signers.alice.address)
       .add256(password)
@@ -320,8 +295,6 @@ describe("PrivateTransfer", function () {
     await refundtx.wait();
     await fhevm.awaitDecryptionOracle();
     await fhevm.awaitDecryptionOracle();
-    console.log("退款成功")
-    console.log("开始获取vault")
     const vault = await PrivateTransferContract.getVault(password);
     expect(vault.isPublished).to.equal(true);
     const decryptedBalance = await fhevm.userDecryptEuint(
@@ -330,7 +303,6 @@ describe("PrivateTransfer", function () {
       PrivateTransferContractAddress,
       passwordWallet,
     );
-    console.log("剩余金额", decryptedBalance)
     for (let item of vault.withdrawal) {
       const decryptedReceiver = await fhevm.userDecryptEaddress(
         item.receiver,
@@ -343,7 +315,6 @@ describe("PrivateTransfer", function () {
         PrivateTransferContractAddress,
         passwordWallet,
       );
-      console.log(decryptedReceiver, decryptedAmount)
     }
   });
 });

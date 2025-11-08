@@ -26,9 +26,12 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
+    "@vitejs/plugin-basic-ssl": "^1.1.0",
     "@vitejs/plugin-vue": "^5.0.4",
     "typescript": "~5.4.0",
     "vite": "^5.2.0",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.5.0",
     "vue-tsc": "^2.0.6"
   }
 }

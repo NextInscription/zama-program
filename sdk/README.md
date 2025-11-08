@@ -6,15 +6,13 @@ A TypeScript SDK for Zama Private Transfer smart contract on Sepolia testnet wit
 
 ```bash
 npm install zama-private-transfer
+# or
+yarn add zama-private-transfer
+# or
+pnpm add zama-private-transfer
 ```
 
-```bash
-# 2. Install dependencies
-npm install
-
-# 3. Build SDK
-cd sdk && npm run build
-```
+**That's it!** All dependencies (`@zama-fhe/relayer-sdk`, `ethers`) will be installed automatically. No additional setup required.
 
 ## WASM Setup
 

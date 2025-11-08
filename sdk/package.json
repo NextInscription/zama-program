@@ -1,6 +1,6 @@
 {
   "name": "zama-private-transfer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeScript SDK for Zama Private Transfer DApp",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -24,8 +24,8 @@
     "src/vite-plugin.d.ts"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "debug": "npm run build && npx vite --open test-debug.html",
     "debug:lan": "npm run build && npx vite --host 0.0.0.0 --open test-debug.html",
@@ -52,7 +52,7 @@
   "homepage": "https://github.com/NextInscription/zama-program#readme",
   "dependencies": {
     "@zama-fhe/relayer-sdk": "^0.2.0",
-    "ethers": ">=6.0.0"
+    "ethers": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -62,14 +62,5 @@
     "typescript": "^5.0.0",
     "vite": "^7.1.12",
     "vite-plugin-dts": "^4.5.4"
-  },
-  "peerDependencies": {
-    "ethers": ">=6.0.0",
-    "vite": ">=5.0.0"
-  },
-  "peerDependenciesMeta": {
-    "vite": {
-      "optional": true
-    }
   }
 }

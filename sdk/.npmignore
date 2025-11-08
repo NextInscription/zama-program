@@ -1,4 +1,4 @@
-# Ignore everything except dist and README.md
+# Ignore everything except dist, README, and vite plugin
 *
 
 # Include dist directory
@@ -7,3 +7,10 @@
 
 # Include README
 !README.md
+
+# Include vite plugin files
+!src/vite-plugin.js
+!src/vite-plugin.d.ts
+
+# Include package.json (automatically included by npm)
+!package.json
